@@ -11,7 +11,7 @@ import {
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 
-export default function App() {
+export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,7 +29,6 @@ export default function App() {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
-      Alert.alert('Success', isSignUp ? 'Account created!' : 'Logged in!');
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {
@@ -75,7 +74,9 @@ export default function App() {
 
       <TouchableOpacity onPress={() => setIsSignUp(!isSignUp)}>
         <Text style={styles.toggleText}>
-          {isSignUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+          {isSignUp
+            ? 'Already have an account? Log in'
+            : "Don't have an account? Sign up"}
         </Text>
       </TouchableOpacity>
     </View>
