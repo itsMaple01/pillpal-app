@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { onAuthStateChanged } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '@/lib/firebase';
+import { getUser } from '@/api/index';
 import LoginScreen from './screens/login';
 import RoleSelectScreen from './screens/role-select';
 import PatientDashboard from './screens/patient-dashboard';
@@ -17,13 +19,27 @@ export default function App() {
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUid(user.uid);
         setEmail(user.email);
-        if (role) {
-          setScreen(role === 'patient' ? 'patientDash' : 'caretakerDash');
-        } else {
+        try {
+          const cachedRole = await AsyncStorage.getItem(`role_${user.uid}`);
+          if (cachedRole === 'patient' || cachedRole === 'caretaker') {
+            setRole(cachedRole);
+            setScreen(cachedRole === 'patient' ? 'patientDash' : 'caretakerDash');
+            return;
+          }
+          const res = await getUser(user.uid);
+          const dbRole = res.data?.role;
+          if (dbRole === 'patient' || dbRole === 'caretaker') {
+            setRole(dbRole);
+            await AsyncStorage.setItem(`role_${user.uid}`, dbRole);
+            setScreen(dbRole === 'patient' ? 'patientDash' : 'caretakerDash');
+            return;
+          }
+          setScreen('roleSelect');
+        } catch {
           setScreen('roleSelect');
         }
       } else {
@@ -31,20 +47,46 @@ export default function App() {
       }
     });
     return unsubscribe;
-  }, [role]);
+  }, []);
 
-  const handleAuthSuccess = (userId: string, userEmail: string, isNewUser: boolean) => {
+  const handleAuthSuccess = async (userId: string, userEmail: string, isNewUser: boolean) => {
     setUid(userId);
     setEmail(userEmail);
+
+    if (!isNewUser) {
+      try {
+        const cachedRole = await AsyncStorage.getItem(`role_${userId}`);
+        if (cachedRole === 'patient' || cachedRole === 'caretaker') {
+          setRole(cachedRole);
+          setScreen(cachedRole === 'patient' ? 'patientDash' : 'caretakerDash');
+          return;
+        }
+        const res = await getUser(userId);
+        const dbRole = res.data?.role;
+        if (dbRole === 'patient' || dbRole === 'caretaker') {
+          setRole(dbRole);
+          await AsyncStorage.setItem(`role_${userId}`, dbRole);
+          setScreen(dbRole === 'patient' ? 'patientDash' : 'caretakerDash');
+          return;
+        }
+      } catch {}
+    }
+
     setScreen('roleSelect');
   };
 
-  const handleRoleSelected = (selectedRole: 'patient' | 'caretaker') => {
+  const handleRoleSelected = async (selectedRole: 'patient' | 'caretaker') => {
     setRole(selectedRole);
+    if (uid) {
+      await AsyncStorage.setItem(`role_${uid}`, selectedRole);
+    }
     setScreen(selectedRole === 'patient' ? 'patientDash' : 'caretakerDash');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (uid) {
+      await AsyncStorage.removeItem(`role_${uid}`);
+    }
     setRole(null);
     setUid(null);
     setEmail(null);
@@ -74,10 +116,10 @@ export default function App() {
         />
       )}
       {screen === 'patientDash' && (
-        <PatientDashboard onLogout={handleLogout} />
+        <PatientDashboard onLogout={handleLogout} uid={uid!} />
       )}
       {screen === 'caretakerDash' && (
-        <CaretakerDashboard onLogout={handleLogout} />
+        <CaretakerDashboard onLogout={handleLogout} uid={uid!} />
       )}
     </SafeAreaProvider>
   );
