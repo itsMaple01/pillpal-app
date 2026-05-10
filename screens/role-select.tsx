@@ -1,30 +1,40 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, SafeAreaView, Dimensions,
-  ScrollView, StatusBar, Platform
+  ActivityIndicator, Dimensions,
+  ScrollView, StatusBar, Alert
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+import { syncUser } from '@/api/index';
 
 interface Props {
   uid: string;
+  email: string;
   onRoleSelected: (role: 'patient' | 'caretaker') => void;
   onBack: () => void;
 }
 
 const GREEN = '#2d7a3a';
 const GREEN_DARK = '#1e5c28';
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 0;
 
-export default function RoleSelectScreen({ uid, onRoleSelected, onBack }: Props) {
+export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
   const { width } = Dimensions.get('window');
   const isTablet = width >= 768;
+  const insets = useSafeAreaInsets();
 
   const selectRole = async (role: 'patient' | 'caretaker') => {
     setLoading(role);
-    try { onRoleSelected(role); } finally { setLoading(null); }
+    try {
+      await syncUser({ firebase_uid: uid, email, role });
+      onRoleSelected(role);
+    } catch (err: any) {
+      Alert.alert('Error', 'Could not save your role. Please try again.');
+    } finally {
+      setLoading(null);
+    }
   };
 
   const handleBack = async () => {
@@ -35,16 +45,18 @@ export default function RoleSelectScreen({ uid, onRoleSelected, onBack }: Props)
   return (
     <View style={styles.outer}>
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
-      <View style={[styles.safeTop, { paddingTop: STATUSBAR_HEIGHT }]}>
+      <View style={[styles.safeTop, { paddingTop: insets.top }]}>
         <View style={styles.bgCircle1} />
         <View style={styles.bgCircle2} />
 
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
+        <View style={[styles.header, isTablet && styles.headerTablet]}>
+          <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+        </View>
 
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={[styles.scroll, isTablet && styles.scrollTablet]}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topSection}>
@@ -118,16 +130,24 @@ const styles = StyleSheet.create({
     width: 280, height: 280, borderRadius: 140,
     backgroundColor: 'rgba(255,255,255,0.05)'
   },
-  backBtn: {
-    paddingHorizontal: 20, paddingTop: 16,
-    paddingBottom: 8, alignSelf: 'flex-start'
+  header: {
+    width: '100%', paddingHorizontal: 20,
+    paddingTop: 12, paddingBottom: 8,
   },
-  backText: { color: 'rgba(255,255,255,0.9)', fontSize: 16, fontWeight: '600' },
+  headerTablet: { paddingTop: 16, paddingBottom: 12 },
+  backBtn: {
+    alignSelf: 'flex-start', paddingHorizontal: 20,
+    paddingVertical: 12, borderRadius: 14,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  backText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   scroll: {
     flexGrow: 1, alignItems: 'center',
     justifyContent: 'center', padding: 20,
     paddingTop: 8, paddingBottom: 40
   },
+  scrollTablet: { paddingTop: 20 },
   topSection: { alignItems: 'center', marginBottom: 24 },
   logoEmoji: { fontSize: 48, marginBottom: 6 },
   appName: { fontSize: 28, fontWeight: '800', color: '#fff', marginBottom: 12 },

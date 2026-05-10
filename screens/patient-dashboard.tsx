@@ -1,25 +1,34 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, StatusBar, Platform
+  ScrollView, StatusBar, Platform, Dimensions
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props { onLogout: () => void; }
 
 const GREEN = '#2d7a3a';
-const STATUSBAR_HEIGHT = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) : 44;
 
 export default function PatientDashboard({ onLogout }: Props) {
+  const { width } = Dimensions.get('window');
+  const isTablet = width >= 768;
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.outer}>
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
-      <View style={[styles.header, { paddingTop: STATUSBAR_HEIGHT + 14 }]}>
-        <Text style={styles.headerTitle}>💊 Medicine Reminder</Text>
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+        <Text style={[styles.headerTitle, isTablet && styles.headerTitleTablet]}>
+          💊 Medicine Reminder
+        </Text>
         <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      <ScrollView style={styles.body} contentContainerStyle={[
+        styles.bodyContent,
+        isTablet && styles.bodyContentTablet
+      ]}>
         <View style={styles.greetingCard}>
           <Text style={styles.greetingIcon}>☀️</Text>
           <View style={{ flex: 1 }}>
@@ -70,7 +79,7 @@ export default function PatientDashboard({ onLogout }: Props) {
         </TouchableOpacity>
       </ScrollView>
 
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
         <TouchableOpacity style={styles.tabItem}>
           <Text style={styles.tabIcon}>🏠</Text>
           <Text style={[styles.tabLabel, { color: GREEN }]}>Home</Text>
@@ -100,13 +109,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 14
   },
   headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  headerTitleTablet: { fontSize: 20 },
   logoutBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   logoutText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   body: { flex: 1 },
   bodyContent: { padding: 16, gap: 12 },
+  bodyContentTablet: { padding: 24, maxWidth: 900, alignSelf: 'center', width: '100%' },
   greetingCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,

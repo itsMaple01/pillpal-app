@@ -8,7 +8,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'fire
 import { auth } from '@/lib/firebase';
 
 interface Props {
-  onAuthSuccess: (uid: string, isNewUser: boolean) => void;
+  onAuthSuccess: (uid: string, email: string, isNewUser: boolean) => void;
 }
 
 export default function LoginScreen({ onAuthSuccess }: Props) {
@@ -32,10 +32,10 @@ export default function LoginScreen({ onAuthSuccess }: Props) {
     try {
       if (tab === 'signup') {
         const result = await createUserWithEmailAndPassword(auth, email, password);
-        onAuthSuccess(result.user.uid, true);
+        onAuthSuccess(result.user.uid, result.user.email ?? '', true);
       } else {
         const result = await signInWithEmailAndPassword(auth, email, password);
-        onAuthSuccess(result.user.uid, false);
+        onAuthSuccess(result.user.uid, result.user.email ?? '', false);
       }
     } catch (error: any) {
       Alert.alert('Error', error.message);

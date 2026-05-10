@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import LoginScreen from './screens/login';
@@ -12,12 +13,14 @@ type Screen = 'loading' | 'login' | 'roleSelect' | 'patientDash' | 'caretakerDas
 export default function App() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [uid, setUid] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUid(user.uid);
+        setEmail(user.email);
         if (role) {
           setScreen(role === 'patient' ? 'patientDash' : 'caretakerDash');
         } else {
@@ -30,8 +33,9 @@ export default function App() {
     return unsubscribe;
   }, [role]);
 
-  const handleAuthSuccess = (userId: string, isNewUser: boolean) => {
+  const handleAuthSuccess = (userId: string, userEmail: string, isNewUser: boolean) => {
     setUid(userId);
+    setEmail(userEmail);
     setScreen('roleSelect');
   };
 
@@ -43,21 +47,38 @@ export default function App() {
   const handleLogout = () => {
     setRole(null);
     setUid(null);
+    setEmail(null);
     setScreen('login');
   };
 
-  if (screen === 'loading') {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2d7a3a' }}>
-        <ActivityIndicator size="large" color="#fff" />
-      </View>
-    );
-  }
-
-  if (screen === 'login') return <LoginScreen onAuthSuccess={handleAuthSuccess} />;
-  if (screen === 'roleSelect') return <RoleSelectScreen uid={uid!} onRoleSelected={handleRoleSelected} onBack={() => setScreen('login')} />;
-  if (screen === 'patientDash') return <PatientDashboard onLogout={handleLogout} />;
-  if (screen === 'caretakerDash') return <CaretakerDashboard onLogout={handleLogout} />;
-
-  return null;
+  return (
+    <SafeAreaProvider>
+      {screen === 'loading' && (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2d7a3a' }}>
+          <ActivityIndicator size="large" color="#fff" />
+        </View>
+      )}
+      {screen === 'login' && (
+        <LoginScreen onAuthSuccess={handleAuthSuccess} />
+      )}
+      {screen === 'roleSelect' && (
+        <RoleSelectScreen
+          uid={uid!}
+          email={email!}
+          onRoleSelected={handleRoleSelected}
+          onBack={() => {
+            setUid(null);
+            setEmail(null);
+            setScreen('login');
+          }}
+        />
+      )}
+      {screen === 'patientDash' && (
+        <PatientDashboard onLogout={handleLogout} />
+      )}
+      {screen === 'caretakerDash' && (
+        <CaretakerDashboard onLogout={handleLogout} />
+      )}
+    </SafeAreaProvider>
+  );
 }
