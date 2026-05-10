@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '@/lib/firebase';
 import { getUser } from '@/api/index';
@@ -9,6 +9,7 @@ import LoginScreen from './screens/login';
 import RoleSelectScreen from './screens/role-select';
 import PatientDashboard from './screens/patient-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
+import LogoutModal from './components/LogoutModal';
 
 type Screen = 'loading' | 'login' | 'roleSelect' | 'patientDash' | 'caretakerDash';
 
@@ -17,6 +18,7 @@ export default function App() {
   const [uid, setUid] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -83,10 +85,18 @@ export default function App() {
     setScreen(selectedRole === 'patient' ? 'patientDash' : 'caretakerDash');
   };
 
-  const handleLogout = async () => {
+  // Called by both dashboards — just opens the modal
+  const handleLogout = () => {
+    setShowLogoutModal(true);
+  };
+
+  // Called when user confirms in the modal
+  const performLogout = async () => {
+    setShowLogoutModal(false);
     if (uid) {
       await AsyncStorage.removeItem(`role_${uid}`);
     }
+    await signOut(auth);
     setRole(null);
     setUid(null);
     setEmail(null);
@@ -121,6 +131,13 @@ export default function App() {
       {screen === 'caretakerDash' && (
         <CaretakerDashboard onLogout={handleLogout} uid={uid!} />
       )}
+
+      {/* Single modal instance at the root — works across both dashboards */}
+      <LogoutModal
+        visible={showLogoutModal}
+        onConfirm={performLogout}
+        onCancel={() => setShowLogoutModal(false)}
+      />
     </SafeAreaProvider>
   );
 }

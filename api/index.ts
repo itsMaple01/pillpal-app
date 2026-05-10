@@ -24,14 +24,25 @@ export const getMedications = (patient_uid: string) =>
   api.get(`/api/medications/${patient_uid}`);
 
 export const addMedication = (data: {
-  patient_uid: string;
+  // Accept either field name so callers don't break
+  patient_uid?: string;
+  firebase_uid?: string;
   name: string;
   dosage?: string;
   frequency?: string;
+  time?: string;       // ← added: used by PatientDashboard
   program?: string;
   start_date?: string;
   end_date?: string;
-}) => api.post('/api/medications', data);
+}) => {
+  // Normalise: backend expects patient_uid
+  const payload = {
+    ...data,
+    patient_uid: data.patient_uid ?? data.firebase_uid,
+  };
+  delete payload.firebase_uid;          // don't send both
+  return api.post('/api/medications', payload);
+};
 
 export const deleteMedication = (id: number) =>
   api.delete(`/api/medications/${id}`);

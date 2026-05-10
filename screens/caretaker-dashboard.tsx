@@ -1,22 +1,24 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions, TextInput,
-  ActivityIndicator, Alert
+  ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect } from 'react';
-import { getLinkedPatients } from '@/api/index';
+import { getLinkedPatients, getMedications } from '@/api/index';
+import LogoutModal from '@/components/LogoutModal';
+import MedicationsScreen from '@/components/MedicationsScreen';
 
 interface Props {
   onLogout: () => void;
   uid: string;
 }
 
-const GREEN = '#2d7a3a';
-const GREEN_DARK = '#1e5c28';
+const GREEN       = '#2d7a3a';
+const GREEN_DARK  = '#1e5c28';
 const GREEN_LIGHT = '#e8f5e9';
 
-type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Alerts' | 'Profile';
+type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Alerts' | 'Profile';
 
 const FILTERS = ['All', 'Active', 'Inactive', 'Missed Doses', 'Needs Attention'];
 
@@ -38,10 +40,19 @@ interface Patient {
   link_status: string;
 }
 
+interface Medication {
+  id: string;
+  name: string;
+  dosage: string;
+  frequency: string;
+  time: string;
+  taken: boolean;
+}
+
 function getPatientStatus(patient: Patient): string {
   if (patient.link_status === 'inactive') return 'Inactive';
-  if ((patient.missed_doses ?? 0) >= 5) return 'Needs Attention';
-  if ((patient.missed_doses ?? 0) > 0) return 'Missed Doses';
+  if ((patient.missed_doses ?? 0) >= 5)   return 'Needs Attention';
+  if ((patient.missed_doses ?? 0) > 0)    return 'Missed Doses';
   return 'Active';
 }
 
@@ -49,23 +60,35 @@ const SIDE_TABS: { icon: string; label: CaretakerTab }[] = [
   { icon: '🏠', label: 'Home' },
   { icon: '👥', label: 'Patients' },
   { icon: '📅', label: 'Schedule' },
+  { icon: '💊', label: 'Medications' },
   { icon: '🔔', label: 'Alerts' },
   { icon: '👤', label: 'Profile' },
 ];
 
 export default function CaretakerDashboard({ onLogout, uid }: Props) {
-  const insets = useSafeAreaInsets();
-  const { width } = Dimensions.get('window');
+  const insets   = useSafeAreaInsets();
+  const { width }= Dimensions.get('window');
   const isTablet = width >= 768;
 
-  const [activeTab, setActiveTab] = useState<CaretakerTab>('Patients');
+  const [activeTab,    setActiveTab]    = useState<CaretakerTab>('Patients');
   const [activeFilter, setActiveFilter] = useState('All');
-  const [search, setSearch] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [search,       setSearch]       = useState('');
+  const [expandedId,   setExpandedId]   = useState<string | null>(null);
+  const [patients,     setPatients]     = useState<Patient[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [showLogout,   setShowLogout]   = useState(false);
+
+  // Medications tab state
+  const [selectedPatient,    setSelectedPatient]    = useState<Patient | null>(null);
+  const [patientMedications, setPatientMedications] = useState<Medication[]>([]);
+  const [loadingMeds,        setLoadingMeds]        = useState(false);
 
   useEffect(() => { fetchPatients(); }, []);
+
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
+    else Alert.alert(title, message);
+  };
 
   const fetchPatients = async () => {
     setLoading(true);
@@ -73,10 +96,29 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       const res = await getLinkedPatients(uid);
       setPatients(res.data);
     } catch {
-      Alert.alert('Error', 'Could not load patients. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+      showAlert('Error', 'Could not load patients. Please try again.');
+    } finally { setLoading(false); }
+  };
+
+  const loadPatientMedications = async (patient: Patient) => {
+    setSelectedPatient(patient);
+    setActiveTab('Medications');
+    setLoadingMeds(true);
+    try {
+      const res  = await getMedications(patient.firebase_uid);
+      const rows: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      setPatientMedications(rows.map((row: any) => ({
+        id:        String(row.id),
+        name:      row.name      ?? '',
+        dosage:    row.dosage    ?? 'As prescribed',
+        frequency: row.frequency ?? '',
+        time:      row.time      ?? row.program ?? '',
+        taken:     row.taken     ?? false,
+      })));
+    } catch {
+      showAlert('Error', 'Could not load medications for this patient.');
+      setPatientMedications([]);
+    } finally { setLoadingMeds(false); }
   };
 
   const filtered = patients.filter(p => {
@@ -84,14 +126,14 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     const matchFilter = activeFilter === 'All' || status === activeFilter;
     const matchSearch =
       (p.full_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-      (p.email ?? '').toLowerCase().includes(search.toLowerCase());
+      (p.email     ?? '').toLowerCase().includes(search.toLowerCase());
     return matchFilter && matchSearch;
   });
 
   const stats = {
-    total: patients.length,
-    active: patients.filter(p => getPatientStatus(p) === 'Active').length,
-    missed: patients.filter(p => (p.missed_doses ?? 0) > 0).length,
+    total:     patients.length,
+    active:    patients.filter(p => getPatientStatus(p) === 'Active').length,
+    missed:    patients.filter(p => (p.missed_doses ?? 0) > 0).length,
     attention: patients.filter(p => getPatientStatus(p) === 'Needs Attention').length,
   };
 
@@ -105,10 +147,10 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
       <View style={styles.homeStatsGrid}>
         {[
-          { icon: '👥', num: stats.total, label: 'Total Patients', color: GREEN },
-          { icon: '✅', num: stats.active, label: 'Active', color: '#2d7a3a' },
-          { icon: '⚠️', num: stats.missed, label: 'Missed Doses', color: '#e65100' },
-          { icon: '🚨', num: stats.attention, label: 'Needs Attention', color: '#c62828' },
+          { icon: '👥', num: stats.total,     label: 'Total Patients',  color: GREEN      },
+          { icon: '✅', num: stats.active,    label: 'Active',          color: '#2d7a3a'  },
+          { icon: '⚠️', num: stats.missed,    label: 'Missed Doses',    color: '#e65100'  },
+          { icon: '🚨', num: stats.attention, label: 'Needs Attention', color: '#c62828'  },
         ].map((s, i) => (
           <View key={i} style={[styles.homeStatCard, { borderTopColor: s.color }]}>
             <Text style={styles.homeStatIcon}>{s.icon}</Text>
@@ -120,6 +162,14 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
       <TouchableOpacity style={styles.homeQuickBtn} onPress={() => setActiveTab('Patients')}>
         <Text style={styles.homeQuickBtnText}>👥 View All Patients →</Text>
+      </TouchableOpacity>
+
+      {/* Medications quick-link */}
+      <TouchableOpacity
+        style={[styles.homeQuickBtn, styles.homeQuickBtnOutline]}
+        onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
+      >
+        <Text style={[styles.homeQuickBtnText, { color: GREEN }]}>💊 View Patient Medications →</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={[styles.homeQuickBtn, styles.homeQuickBtnOutline]} onPress={() => setActiveTab('Alerts')}>
@@ -137,8 +187,8 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
   // ── PATIENTS SCREEN ──
   const PatientRow = ({ patient }: { patient: Patient }) => {
-    const isExpanded = expandedId === patient.firebase_uid;
-    const status = getPatientStatus(patient);
+    const isExpanded  = expandedId === patient.firebase_uid;
+    const status      = getPatientStatus(patient);
     const statusColor = STATUS_COLORS[status] ?? { bg: '#eee', text: '#333' };
 
     return (
@@ -185,9 +235,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           <View style={styles.expandedSection}>
             <View style={styles.expandedStats}>
               {[
-                { num: patient.missed_doses ?? 0, label: 'Missed Doses' },
-                { num: `${patient.compliance ?? 0}%`, label: 'Compliance' },
-                { num: patient.age ?? '—', label: 'Age' },
+                { num: patient.missed_doses ?? 0,     label: 'Missed Doses' },
+                { num: `${patient.compliance ?? 0}%`, label: 'Compliance'   },
+                { num: patient.age ?? '—',             label: 'Age'          },
               ].map((s, i) => (
                 <View key={i} style={styles.expandedStat}>
                   <Text style={styles.expandedStatNum}>{s.num}</Text>
@@ -196,13 +246,22 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
               ))}
             </View>
             <View style={styles.expandedActions}>
-              <TouchableOpacity style={styles.actionBtnGreen} onPress={() => setActiveTab('Schedule')}>
-                <Text style={styles.actionBtnText}>📋 View Schedule</Text>
+              <TouchableOpacity
+                style={styles.actionBtnGreen}
+                onPress={() => loadPatientMedications(patient)}
+              >
+                <Text style={styles.actionBtnText}>💊 View Medications</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtnOutline}>
-                <Text style={styles.actionBtnOutlineText}>✉️ Send Reminder</Text>
+              <TouchableOpacity
+                style={styles.actionBtnOutline}
+                onPress={() => setActiveTab('Schedule')}
+              >
+                <Text style={styles.actionBtnOutlineText}>📋 Schedule</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity style={[styles.actionBtnOutline, { marginTop: 8 }]}>
+              <Text style={styles.actionBtnOutlineText}>✉️ Send Reminder</Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -214,9 +273,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       <View style={{ padding: 16, gap: 10 }}>
         <View style={styles.statsRow}>
           {[
-            { icon: '👥', num: stats.total, label: 'Total Patients' },
-            { icon: '✅', num: stats.active, label: 'Active' },
-            { icon: '⚠️', num: stats.missed, label: 'Missed Doses' },
+            { icon: '👥', num: stats.total,     label: 'Total Patients'  },
+            { icon: '✅', num: stats.active,    label: 'Active'          },
+            { icon: '⚠️', num: stats.missed,    label: 'Missed Doses'    },
             { icon: '🚨', num: stats.attention, label: 'Needs Attention' },
           ].map((s, i) => (
             <View key={i} style={styles.statCard}>
@@ -238,12 +297,17 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           />
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}
-          contentContainerStyle={{ alignItems: 'center', paddingVertical: 4 }}>
+        <ScrollView
+          horizontal showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={{ alignItems: 'center', paddingVertical: 4 }}
+        >
           {FILTERS.map(f => (
-            <TouchableOpacity key={f}
+            <TouchableOpacity
+              key={f}
               style={[styles.filterTab, activeFilter === f && styles.filterTabActive]}
-              onPress={() => setActiveFilter(f)}>
+              onPress={() => setActiveFilter(f)}
+            >
               <Text style={[styles.filterTabText, activeFilter === f && styles.filterTabTextActive]}>{f}</Text>
             </TouchableOpacity>
           ))}
@@ -270,7 +334,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>👥</Text>
               <Text style={styles.emptyText}>No patients linked yet</Text>
-              <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>Ask patients to link their account to yours</Text>
+              <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
+                Ask patients to link their account to yours
+              </Text>
             </View>
           ) : (
             filtered.map(p => <PatientRow key={p.firebase_uid} patient={p} />)
@@ -279,6 +345,114 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       )}
     </View>
   );
+
+  // ── MEDICATIONS SCREEN ──
+  const MedicationsTab = () => {
+    // Patient selected — show their meds
+    if (selectedPatient) {
+      return (
+        <View style={{ flex: 1 }}>
+          <TouchableOpacity
+            style={ct.backBtn}
+            onPress={() => { setSelectedPatient(null); setPatientMedications([]); }}
+          >
+            <Text style={ct.backBtnText}>← Back to patients</Text>
+          </TouchableOpacity>
+
+          {loadingMeds ? (
+            <View style={ct.loadingWrap}>
+              <ActivityIndicator size="large" color={GREEN} />
+              <Text style={ct.loadingText}>Loading medications…</Text>
+            </View>
+          ) : (
+            <MedicationsScreen
+              medications={patientMedications}
+              patientName={selectedPatient.full_name ?? selectedPatient.email}
+              readOnly
+            />
+          )}
+        </View>
+      );
+    }
+
+    // No patient selected — show picker list
+    return (
+      <ScrollView
+        style={{ flex: 1, backgroundColor: '#f0f4f0' }}
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
+      >
+        {/* Header banner */}
+        <View style={ct.medsHeader}>
+          <Text style={ct.medsHeaderTitle}>💊 Patient Medications</Text>
+          <Text style={ct.medsHeaderSub}>
+            Select a patient to view their current medications
+          </Text>
+        </View>
+
+        {/* Summary stats */}
+        <View style={ct.summaryRow}>
+          <View style={[ct.summaryCard, { backgroundColor: GREEN_LIGHT }]}>
+            <Text style={[ct.summaryNum, { color: GREEN }]}>{patients.length}</Text>
+            <Text style={[ct.summaryLabel, { color: GREEN }]}>Patients</Text>
+          </View>
+          <View style={[ct.summaryCard, { backgroundColor: '#fff3e0' }]}>
+            <Text style={[ct.summaryNum, { color: '#e65100' }]}>{stats.missed}</Text>
+            <Text style={[ct.summaryLabel, { color: '#e65100' }]}>Missed Doses</Text>
+          </View>
+          <View style={[ct.summaryCard, { backgroundColor: '#fce4ec' }]}>
+            <Text style={[ct.summaryNum, { color: '#c62828' }]}>{stats.attention}</Text>
+            <Text style={[ct.summaryLabel, { color: '#c62828' }]}>Need Attention</Text>
+          </View>
+        </View>
+
+        <Text style={ct.pickerSectionTitle}>SELECT A PATIENT</Text>
+
+        {loading ? (
+          <View style={ct.loadingWrap}>
+            <ActivityIndicator size="large" color={GREEN} />
+          </View>
+        ) : patients.length === 0 ? (
+          <View style={ct.emptyCard}>
+            <Text style={ct.emptyIcon}>👥</Text>
+            <Text style={ct.emptyTitle}>No patients linked yet</Text>
+            <Text style={ct.emptySub}>Patients will appear here once they link their account</Text>
+          </View>
+        ) : (
+          patients.map(p => {
+            const status      = getPatientStatus(p);
+            const statusColor = STATUS_COLORS[status] ?? { bg: '#eee', text: '#333' };
+            return (
+              <TouchableOpacity
+                key={p.firebase_uid}
+                style={ct.patientMedRow}
+                onPress={() => loadPatientMedications(p)}
+                activeOpacity={0.8}
+              >
+                <View style={ct.avatar}>
+                  <Text style={ct.avatarText}>
+                    {(p.full_name ?? p.email ?? '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={ct.patientName}>{p.full_name ?? p.email}</Text>
+                  <Text style={ct.patientSub}>
+                    {p.age ? `Age ${p.age}` : 'Age unknown'} · {p.missed_doses ?? 0} missed dose{(p.missed_doses ?? 0) !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+
+                <View style={[ct.compBadge, { backgroundColor: statusColor.bg }]}>
+                  <Text style={[ct.compBadgeText, { color: statusColor.text }]}>{status}</Text>
+                </View>
+
+                <Text style={ct.chevron}>›</Text>
+              </TouchableOpacity>
+            );
+          })
+        )}
+      </ScrollView>
+    );
+  };
 
   // ── SCHEDULE SCREEN ──
   const ScheduleScreen = () => (
@@ -291,14 +465,18 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📭</Text>
           <Text style={styles.emptyText}>No patients linked yet</Text>
-          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>Schedules will appear here once patients are linked</Text>
+          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
+            Schedules will appear here once patients are linked
+          </Text>
         </View>
       ) : (
         patients.map(p => (
           <View key={p.firebase_uid} style={styles.schedulePatientCard}>
             <View style={styles.schedulePatientHeader}>
               <View style={styles.scheduleAvatar}>
-                <Text style={styles.scheduleAvatarText}>{(p.full_name ?? p.email ?? '?').charAt(0).toUpperCase()}</Text>
+                <Text style={styles.scheduleAvatarText}>
+                  {(p.full_name ?? p.email ?? '?').charAt(0).toUpperCase()}
+                </Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.schedulePatientName}>{p.full_name ?? p.email}</Text>
@@ -327,7 +505,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
   // ── ALERTS SCREEN ──
   const AlertsScreen = () => {
-    const alertPatients = patients.filter(p => getPatientStatus(p) !== 'Active' && getPatientStatus(p) !== 'Inactive');
+    const alertPatients = patients.filter(p =>
+      getPatientStatus(p) !== 'Active' && getPatientStatus(p) !== 'Inactive'
+    );
     return (
       <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
         <Text style={styles.screenTitle}>🔔 Alerts</Text>
@@ -340,7 +520,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           </View>
         ) : (
           alertPatients.map(p => {
-            const status = getPatientStatus(p);
+            const status   = getPatientStatus(p);
             const isUrgent = status === 'Needs Attention';
             return (
               <View key={p.firebase_uid} style={[styles.alertCard, { borderLeftColor: isUrgent ? '#c62828' : '#e65100' }]}>
@@ -385,24 +565,27 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
       <Text style={styles.manageSection}>Overview</Text>
       {[
-        { icon: '👥', label: 'Linked Patients', sub: `${patients.length} patient${patients.length !== 1 ? 's' : ''}` },
-        { icon: '🚨', label: 'Needs Attention', sub: `${stats.attention} patient${stats.attention !== 1 ? 's' : ''}` },
-        { icon: '✅', label: 'Active Patients', sub: `${stats.active} patient${stats.active !== 1 ? 's' : ''}` },
+        { icon: '👥', label: 'Linked Patients',  sub: `${patients.length} patient${patients.length !== 1 ? 's' : ''}` },
+        { icon: '🚨', label: 'Needs Attention',  sub: `${stats.attention} patient${stats.attention !== 1 ? 's' : ''}` },
+        { icon: '✅', label: 'Active Patients',  sub: `${stats.active} patient${stats.active !== 1 ? 's' : ''}` },
+        { icon: '💊', label: 'Medications',      sub: 'View all patient medications',
+          onPress: () => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); } },
       ].map((item, i) => (
-        <View key={i} style={styles.manageRow}>
+        <TouchableOpacity key={i} style={styles.manageRow} onPress={(item as any).onPress}>
           <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.manageRowLabel}>{item.label}</Text>
             <Text style={styles.manageRowSub}>{item.sub}</Text>
           </View>
-        </View>
+          {(item as any).onPress && <Text style={styles.manageArrow}>›</Text>}
+        </TouchableOpacity>
       ))}
 
       <Text style={styles.manageSection}>Settings</Text>
       {[
         { icon: '🔔', label: 'Notification Settings', sub: 'Manage alert preferences' },
-        { icon: '🔒', label: 'Privacy & Security', sub: 'Manage your data' },
-        { icon: '❓', label: 'Help & Support', sub: 'Get assistance' },
+        { icon: '🔒', label: 'Privacy & Security',    sub: 'Manage your data' },
+        { icon: '❓', label: 'Help & Support',         sub: 'Get assistance' },
       ].map((item, i) => (
         <TouchableOpacity key={i} style={styles.manageRow}>
           <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
@@ -414,7 +597,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         </TouchableOpacity>
       ))}
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogout(true)}>
         <Text style={styles.logoutRowIcon}>🚪</Text>
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
@@ -424,29 +607,33 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
   const renderScreen = () => {
     switch (activeTab) {
-      case 'Home': return <HomeScreen />;
-      case 'Patients': return <PatientsScreen />;
-      case 'Schedule': return <ScheduleScreen />;
-      case 'Alerts': return <AlertsScreen />;
-      case 'Profile': return <ProfileScreen />;
+      case 'Home':        return <HomeScreen />;
+      case 'Patients':    return <PatientsScreen />;
+      case 'Schedule':    return <ScheduleScreen />;
+      case 'Medications': return <MedicationsTab />;
+      case 'Alerts':      return <AlertsScreen />;
+      case 'Profile':     return <ProfileScreen />;
     }
   };
 
   const screenTitles: Record<CaretakerTab, string> = {
-    Home: '🏠 Dashboard',
-    Patients: '👨‍⚕️ Caretaker Dashboard',
-    Schedule: '📅 Schedules',
-    Alerts: '🔔 Alerts',
-    Profile: '👤 Profile',
+    Home:        '🏠 Dashboard',
+    Patients:    '👨‍⚕️ Caretaker Dashboard',
+    Schedule:    '📅 Schedules',
+    Medications: '💊 Medications',
+    Alerts:      '🔔 Alerts',
+    Profile:     '👤 Profile',
   };
   const screenSubs: Record<CaretakerTab, string> = {
-    Home: 'Welcome back, Caretaker!',
-    Patients: "Good day! Here's your patient overview.",
-    Schedule: 'View all patient medication schedules.',
-    Alerts: 'Patients that need your attention.',
-    Profile: 'Your account and settings.',
+    Home:        'Welcome back, Caretaker!',
+    Patients:    "Good day! Here's your patient overview.",
+    Schedule:    'View all patient medication schedules.',
+    Medications: 'View medications for each patient.',
+    Alerts:      'Patients that need your attention.',
+    Profile:     'Your account and settings.',
   };
 
+  // ── TABLET LAYOUT ──
   if (isTablet) {
     return (
       <View style={[styles.outer, { flexDirection: 'row' }]}>
@@ -458,9 +645,11 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           </View>
           <View style={styles.sidebarNav}>
             {SIDE_TABS.map(tab => (
-              <TouchableOpacity key={tab.label}
+              <TouchableOpacity
+                key={tab.label}
                 style={[styles.sidebarItem, activeTab === tab.label && styles.sidebarItemActive]}
-                onPress={() => setActiveTab(tab.label)}>
+                onPress={() => setActiveTab(tab.label)}
+              >
                 <Text style={styles.sidebarIcon}>{tab.icon}</Text>
                 <Text style={[styles.sidebarLabel, activeTab === tab.label && styles.sidebarLabelActive]}>
                   {tab.label}
@@ -469,7 +658,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
             ))}
           </View>
           <View style={styles.sidebarBottom}>
-            <TouchableOpacity style={styles.sidebarLogout} onPress={onLogout}>
+            <TouchableOpacity style={styles.sidebarLogout} onPress={() => setShowLogout(true)}>
               <Text style={styles.sidebarIcon}>🚪</Text>
               <Text style={styles.sidebarLogoutText}>Log out</Text>
             </TouchableOpacity>
@@ -482,26 +671,35 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
               <Text style={styles.tabletHeaderTitle}>{screenTitles[activeTab]}</Text>
               <Text style={styles.tabletHeaderSub}>{screenSubs[activeTab]}</Text>
             </View>
-            <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+            <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowLogout(true)}>
               <Text style={styles.logoutText}>Log out</Text>
             </TouchableOpacity>
           </View>
           {renderScreen()}
         </View>
+
+        <LogoutModal
+          visible={showLogout}
+          onCancel={() => setShowLogout(false)}
+          onConfirm={() => { setShowLogout(false); onLogout(); }}
+        />
       </View>
     );
   }
 
+  // ── MOBILE LAYOUT ──
   return (
     <View style={styles.outer}>
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <Text style={styles.headerTitle}>{screenTitles[activeTab]}</Text>
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+        <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowLogout(true)}>
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </View>
+
       {renderScreen()}
+
       <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
         {SIDE_TABS.map(tab => (
           <TouchableOpacity key={tab.label} style={styles.tabItem} onPress={() => setActiveTab(tab.label)}>
@@ -512,10 +710,69 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           </TouchableOpacity>
         ))}
       </View>
+
+      <LogoutModal
+        visible={showLogout}
+        onCancel={() => setShowLogout(false)}
+        onConfirm={() => { setShowLogout(false); onLogout(); }}
+      />
     </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// CARETAKER MEDICATIONS TAB STYLES
+// ─────────────────────────────────────────────────────────────
+const ct = StyleSheet.create({
+  backBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 13,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
+  },
+  backBtnText: { fontSize: 14, fontWeight: '700', color: GREEN },
+
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText: { fontSize: 14, color: '#aaa' },
+
+  medsHeader: {
+    backgroundColor: GREEN, borderRadius: 18, padding: 20,
+  },
+  medsHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  medsHeaderSub:   { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 4 },
+
+  summaryRow:  { flexDirection: 'row', gap: 10 },
+  summaryCard: { flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  summaryNum:  { fontSize: 24, fontWeight: '900' },
+  summaryLabel:{ fontSize: 11, fontWeight: '700', marginTop: 2 },
+
+  pickerSectionTitle: {
+    fontSize: 11, fontWeight: '800', color: '#aaa',
+    textTransform: 'uppercase', letterSpacing: 1,
+  },
+
+  emptyCard:  { backgroundColor: '#fff', borderRadius: 16, paddingVertical: 48, alignItems: 'center', gap: 8 },
+  emptyIcon:  { fontSize: 40 },
+  emptyTitle: { fontSize: 16, fontWeight: '800', color: '#333' },
+  emptySub:   { fontSize: 13, color: '#aaa', textAlign: 'center', paddingHorizontal: 24 },
+
+  patientMedRow: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+  },
+  avatar:     { width: 44, height: 44, borderRadius: 22, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 17, fontWeight: '800', color: GREEN },
+  patientName:{ fontSize: 15, fontWeight: '700', color: '#222' },
+  patientSub: { fontSize: 12, color: '#888', marginTop: 2 },
+  compBadge:  { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  compBadgeText: { fontSize: 11, fontWeight: '800' },
+  chevron:    { fontSize: 22, color: '#ccc', fontWeight: '300' },
+});
+
+// ─────────────────────────────────────────────────────────────
+// MAIN STYLES
+// ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: '#f0f4f0' },
   sidebar: {
@@ -523,33 +780,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 24,
     justifyContent: 'space-between',
   },
-  sidebarLogo: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 32 },
+  sidebarLogo:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 32 },
   sidebarLogoIcon: { fontSize: 28 },
   sidebarLogoText: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  sidebarNav: { flex: 1, gap: 4 },
-  sidebarItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12,
-  },
-  sidebarItemActive: { backgroundColor: 'rgba(255,255,255,0.15)' },
-  sidebarIcon: { fontSize: 18 },
-  sidebarLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600' },
-  sidebarLabelActive: { color: '#fff' },
-  sidebarBottom: { marginTop: 16 },
+  sidebarNav:      { flex: 1, gap: 4 },
+  sidebarItem:     { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12 },
+  sidebarItemActive:   { backgroundColor: 'rgba(255,255,255,0.15)' },
+  sidebarIcon:         { fontSize: 18 },
+  sidebarLabel:        { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600' },
+  sidebarLabelActive:  { color: '#fff' },
+  sidebarBottom:       { marginTop: 16 },
   sidebarLogout: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
   },
   sidebarLogoutText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+
   tabletHeader: {
     backgroundColor: GREEN, flexDirection: 'row',
     justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 24, paddingVertical: 12,
   },
   tabletHeaderTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  tabletHeaderSub: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
+  tabletHeaderSub:   { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
+
   header: {
     backgroundColor: GREEN, flexDirection: 'row',
     justifyContent: 'space-between', alignItems: 'center',
@@ -559,45 +814,33 @@ const styles = StyleSheet.create({
   logoutBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20, borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderRadius: 20, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.35)',
   },
   logoutText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+
   mainContent: { flex: 1 },
 
-  // Home screen
-  homeGreeting: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 20,
-    borderLeftWidth: 4, borderLeftColor: GREEN,
-  },
+  // Home
+  homeGreeting:      { backgroundColor: '#fff', borderRadius: 16, padding: 20, borderLeftWidth: 4, borderLeftColor: GREEN },
   homeGreetingTitle: { fontSize: 18, fontWeight: '800', color: '#222' },
-  homeGreetingSub: { fontSize: 13, color: '#666', marginTop: 4 },
-  homeStatsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  homeGreetingSub:   { fontSize: 13, color: '#666', marginTop: 4 },
+  homeStatsGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   homeStatCard: {
     width: '47%', backgroundColor: '#fff', borderRadius: 14,
-    padding: 16, alignItems: 'center',
-    borderTopWidth: 3,
+    padding: 16, alignItems: 'center', borderTopWidth: 3,
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
-  homeStatIcon: { fontSize: 24, marginBottom: 6 },
-  homeStatNum: { fontSize: 28, fontWeight: '800' },
+  homeStatIcon:  { fontSize: 24, marginBottom: 6 },
+  homeStatNum:   { fontSize: 28, fontWeight: '800' },
   homeStatLabel: { fontSize: 11, color: '#888', marginTop: 4, textAlign: 'center' },
-  homeQuickBtn: {
-    backgroundColor: GREEN, borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center',
-  },
-  homeQuickBtnOutline: {
-    backgroundColor: '#fff', borderWidth: 1.5, borderColor: GREEN,
-  },
-  homeQuickBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  homeTipCard: {
-    backgroundColor: '#fffde7', borderRadius: 14, padding: 16,
-    borderLeftWidth: 4, borderLeftColor: '#fbc02d',
-  },
-  homeTipTitle: { fontSize: 14, fontWeight: '800', color: '#f57f17', marginBottom: 6 },
+  homeQuickBtn:        { backgroundColor: GREEN, borderRadius: 14, paddingVertical: 16, alignItems: 'center' },
+  homeQuickBtnOutline: { backgroundColor: '#fff', borderWidth: 1.5, borderColor: GREEN },
+  homeQuickBtnText:    { color: '#fff', fontSize: 15, fontWeight: '700' },
+  homeTipCard: { backgroundColor: '#fffde7', borderRadius: 14, padding: 16, borderLeftWidth: 4, borderLeftColor: '#fbc02d' },
+  homeTipTitle:{ fontSize: 14, fontWeight: '800', color: '#f57f17', marginBottom: 6 },
   homeTipText: { fontSize: 13, color: '#795548', lineHeight: 20 },
 
-  // Patients screen
+  // Patients
   statsRow: { flexDirection: 'row', gap: 10 },
   statCard: {
     flex: 1, backgroundColor: '#fff', borderRadius: 12,
@@ -605,174 +848,110 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
     borderWidth: 1, borderColor: '#e8f0e8',
   },
-  statIcon: { fontSize: 20, marginBottom: 4 },
-  statNum: { fontSize: 22, fontWeight: '800', color: '#222' },
+  statIcon:  { fontSize: 20, marginBottom: 4 },
+  statNum:   { fontSize: 22, fontWeight: '800', color: '#222' },
   statLabel: { fontSize: 10, color: '#888', marginTop: 3, textAlign: 'center' },
+
   searchBox: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#fff', borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 8, gap: 8,
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  searchIcon: { fontSize: 14 },
+  searchIcon:  { fontSize: 14 },
   searchInput: { flex: 1, fontSize: 14, color: '#222' },
-  filterScroll: { flexGrow: 0 },
-  filterTab: {
-    paddingHorizontal: 14, borderRadius: 20, marginRight: 8,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd',
-    height: 32, alignItems: 'center', justifyContent: 'center',
-  },
-  filterTabActive: { backgroundColor: GREEN, borderColor: GREEN },
-  filterTabText: { fontSize: 12, color: '#666', fontWeight: '600' },
+
+  filterScroll:        { flexGrow: 0 },
+  filterTab:           { paddingHorizontal: 14, borderRadius: 20, marginRight: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', height: 32, alignItems: 'center', justifyContent: 'center' },
+  filterTabActive:     { backgroundColor: GREEN, borderColor: GREEN },
+  filterTabText:       { fontSize: 12, color: '#666', fontWeight: '600' },
   filterTabTextActive: { color: '#fff' },
-  tableHeader: {
-    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10,
-    backgroundColor: GREEN_DARK, borderRadius: 10,
-  },
-  tableHeaderText: {
-    flex: 1, fontSize: 11, fontWeight: '700',
-    color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: 0.5,
-  },
-  patientCard: {
-    backgroundColor: '#fff', borderRadius: 12, marginBottom: 6,
-    overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
-  },
-  patientRow: {
-    flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', padding: 12,
-  },
+
+  tableHeader:     { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: GREEN_DARK, borderRadius: 10 },
+  tableHeaderText: { flex: 1, fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+  patientCard: { backgroundColor: '#fff', borderRadius: 12, marginBottom: 6, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  patientRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
   patientLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 2 },
-  chevron: { fontSize: 10, color: '#aaa', width: 12 },
-  avatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center',
-  },
-  avatarText: { fontSize: 14, fontWeight: '800', color: GREEN },
+  chevron:     { fontSize: 10, color: '#aaa', width: 12 },
+  avatar:      { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
+  avatarText:  { fontSize: 14, fontWeight: '800', color: GREEN },
   patientName: { fontSize: 14, fontWeight: '700', color: '#222' },
-  patientSub: { fontSize: 11, color: '#888', marginTop: 1 },
+  patientSub:  { fontSize: 11, color: '#888', marginTop: 1 },
   patientMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 3, justifyContent: 'flex-end' },
-  metaText: { flex: 1, fontSize: 12, color: '#555', textAlign: 'center' },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  statusText: { fontSize: 11, fontWeight: '700' },
+  metaText:    { flex: 1, fontSize: 12, color: '#555', textAlign: 'center' },
+
+  statusBadge:    { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  statusText:     { fontSize: 11, fontWeight: '700' },
   compliancePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   complianceText: { fontSize: 11, fontWeight: '700' },
-  expandedSection: {
-    borderTopWidth: 1, borderTopColor: '#f0f0f0', padding: 12, backgroundColor: '#fafafa',
-  },
-  expandedStats: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  expandedStat: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 10, alignItems: 'center',
-    borderWidth: 1, borderColor: '#eee',
-  },
-  expandedStatNum: { fontSize: 14, fontWeight: '800', color: '#222' },
+
+  expandedSection: { borderTopWidth: 1, borderTopColor: '#f0f0f0', padding: 12, backgroundColor: '#fafafa' },
+  expandedStats:   { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  expandedStat:    { flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: '#eee' },
+  expandedStatNum:   { fontSize: 14, fontWeight: '800', color: '#222' },
   expandedStatLabel: { fontSize: 10, color: '#888', marginTop: 2, textAlign: 'center' },
-  expandedActions: { flexDirection: 'row', gap: 10 },
-  actionBtnGreen: {
-    flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center',
-  },
-  actionBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  actionBtnOutline: {
-    flex: 1, borderWidth: 1.5, borderColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center',
-  },
+  expandedActions:   { flexDirection: 'row', gap: 10 },
+
+  actionBtnGreen:   { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  actionBtnText:    { color: '#fff', fontWeight: '700', fontSize: 13 },
+  actionBtnOutline: { flex: 1, borderWidth: 1.5, borderColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
   actionBtnOutlineText: { color: GREEN, fontWeight: '700', fontSize: 13 },
+
   emptyState: { alignItems: 'center', paddingVertical: 40 },
-  emptyIcon: { fontSize: 40, marginBottom: 12 },
-  emptyText: { fontSize: 15, color: '#aaa' },
+  emptyIcon:  { fontSize: 40, marginBottom: 12 },
+  emptyText:  { fontSize: 15, color: '#aaa' },
 
-  // Schedule screen
-  sectionHeaderRow: { marginBottom: 4 },
-  screenTitle: { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
-  schedulePatientCard: {
-    backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden',
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
-  },
-  schedulePatientHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14,
-  },
-  scheduleAvatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center',
-  },
-  scheduleAvatarText: { fontSize: 14, fontWeight: '800', color: GREEN },
-  schedulePatientName: { fontSize: 14, fontWeight: '700', color: '#222' },
-  schedulePatientSub: { fontSize: 12, color: '#888', marginTop: 2 },
-  scheduleDivider: { height: 1, backgroundColor: '#f0f0f0' },
-  scheduleTimeSlots: { flexDirection: 'row', padding: 12, gap: 8 },
-  scheduleSlot: {
-    flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10,
-    padding: 10, alignItems: 'center',
-  },
-  scheduleSlotTime: { fontSize: 11, fontWeight: '700', color: '#444', marginBottom: 4 },
-  scheduleSlotEmpty: { fontSize: 11, color: '#bbb' },
+  // Schedule
+  sectionHeaderRow:      { marginBottom: 4 },
+  screenTitle:           { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
+  schedulePatientCard:   { backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  schedulePatientHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  scheduleAvatar:        { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
+  scheduleAvatarText:    { fontSize: 14, fontWeight: '800', color: GREEN },
+  schedulePatientName:   { fontSize: 14, fontWeight: '700', color: '#222' },
+  schedulePatientSub:    { fontSize: 12, color: '#888', marginTop: 2 },
+  scheduleDivider:       { height: 1, backgroundColor: '#f0f0f0' },
+  scheduleTimeSlots:     { flexDirection: 'row', padding: 12, gap: 8 },
+  scheduleSlot:          { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10, alignItems: 'center' },
+  scheduleSlotTime:      { fontSize: 11, fontWeight: '700', color: '#444', marginBottom: 4 },
+  scheduleSlotEmpty:     { fontSize: 11, color: '#bbb' },
 
-  // Alerts screen
-  alertAllClear: {
-    alignItems: 'center', paddingVertical: 48,
-    backgroundColor: '#fff', borderRadius: 16,
-  },
-  alertAllClearIcon: { fontSize: 48, marginBottom: 12 },
+  // Alerts
+  alertAllClear:      { alignItems: 'center', paddingVertical: 48, backgroundColor: '#fff', borderRadius: 16 },
+  alertAllClearIcon:  { fontSize: 48, marginBottom: 12 },
   alertAllClearTitle: { fontSize: 20, fontWeight: '800', color: '#222', marginBottom: 4 },
-  alertAllClearSub: { fontSize: 14, color: '#888' },
-  alertCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderLeftWidth: 4,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
-  },
-  alertIcon: { fontSize: 24 },
-  alertPatientName: { fontSize: 14, fontWeight: '700', color: '#222' },
-  alertMessage: { fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 },
-  alertActionBtn: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-  },
-  alertActionText: { fontSize: 12, fontWeight: '700' },
-  alertInfoCard: {
-    backgroundColor: '#e3f2fd', borderRadius: 12, padding: 16,
-    borderLeftWidth: 4, borderLeftColor: '#1976d2',
-  },
-  alertInfoTitle: { fontSize: 14, fontWeight: '800', color: '#1565c0', marginBottom: 8 },
-  alertInfoText: { fontSize: 13, color: '#1565c0', marginBottom: 4 },
+  alertAllClearSub:   { fontSize: 14, color: '#888' },
+  alertCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderLeftWidth: 4, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
+  alertIcon:         { fontSize: 24 },
+  alertPatientName:  { fontSize: 14, fontWeight: '700', color: '#222' },
+  alertMessage:      { fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 },
+  alertActionBtn:    { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+  alertActionText:   { fontSize: 12, fontWeight: '700' },
+  alertInfoCard:     { backgroundColor: '#e3f2fd', borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: '#1976d2' },
+  alertInfoTitle:    { fontSize: 14, fontWeight: '800', color: '#1565c0', marginBottom: 8 },
+  alertInfoText:     { fontSize: 13, color: '#1565c0', marginBottom: 4 },
 
-  // Profile screen
-  profileHeader: { alignItems: 'center', paddingVertical: 24 },
-  profileAvatar: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-  },
+  // Profile
+  profileHeader:     { alignItems: 'center', paddingVertical: 24 },
+  profileAvatar:     { width: 72, height: 72, borderRadius: 36, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   profileAvatarText: { fontSize: 32, fontWeight: '800', color: '#fff' },
-  profileName: { fontSize: 20, fontWeight: '800', color: '#222' },
-  profileUid: { fontSize: 12, color: '#aaa', marginTop: 4 },
-  manageSection: {
-    fontSize: 12, fontWeight: '700', color: '#aaa',
-    textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginBottom: 4,
-  },
-  manageRow: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
-    shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,
-  },
-  manageIconBox: {
-    width: 40, height: 40, borderRadius: 10,
-    backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center',
-  },
-  manageRowLabel: { fontSize: 15, fontWeight: '700', color: '#222' },
-  manageRowSub: { fontSize: 12, color: '#888', marginTop: 2 },
-  manageArrow: { fontSize: 20, color: '#ccc' },
-  logoutRowBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#fff', borderRadius: 12, padding: 14, marginTop: 16,
-    borderWidth: 1.5, borderColor: '#ffcdd2',
-  },
-  logoutRowIcon: { fontSize: 20 },
-  logoutRowText: { fontSize: 15, fontWeight: '700', color: '#c62828' },
-  versionText: { textAlign: 'center', color: '#ccc', fontSize: 12, marginTop: 24 },
+  profileName:       { fontSize: 20, fontWeight: '800', color: '#222' },
+  profileUid:        { fontSize: 12, color: '#aaa', marginTop: 4 },
+  manageSection:     { fontSize: 12, fontWeight: '700', color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, marginTop: 8, marginBottom: 4 },
+  manageRow:         { backgroundColor: '#fff', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },
+  manageIconBox:     { width: 40, height: 40, borderRadius: 10, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
+  manageRowLabel:    { fontSize: 15, fontWeight: '700', color: '#222' },
+  manageRowSub:      { fontSize: 12, color: '#888', marginTop: 2 },
+  manageArrow:       { fontSize: 20, color: '#ccc' },
+  logoutRowBtn:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 12, padding: 14, marginTop: 16, borderWidth: 1.5, borderColor: '#ffcdd2' },
+  logoutRowIcon:     { fontSize: 20 },
+  logoutRowText:     { fontSize: 15, fontWeight: '700', color: '#c62828' },
+  versionText:       { textAlign: 'center', color: '#ccc', fontSize: 12, marginTop: 24 },
 
-  // Tab bar (mobile)
-  tabBar: {
-    flexDirection: 'row', backgroundColor: '#fff',
-    borderTopWidth: 1, borderTopColor: '#eee', paddingVertical: 10,
-  },
-  tabItem: { flex: 1, alignItems: 'center' },
-  tabIcon: { fontSize: 22 },
+  // Tab bar
+  tabBar:   { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingVertical: 10 },
+  tabItem:  { flex: 1, alignItems: 'center' },
+  tabIcon:  { fontSize: 22 },
   tabLabel: { fontSize: 11, color: '#aaa', marginTop: 2 },
 });
