@@ -1,7 +1,7 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions,
-  Alert, Modal, Platform, Switch,
+  Alert, Modal, Platform, Switch, Pressable,
 } from 'react-native';
 import { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,12 +9,23 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { db } from '@/lib/firebase';
 import {
   collection, addDoc, deleteDoc,
-  doc, serverTimestamp, onSnapshot,
-  query, where, updateDoc,
+  doc, serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
-import { addMedication, getMedications, deleteMedication } from '@/api/index';
-import LogoutModal from '@/components/LogoutModal';
+import {
+  addMedication, deleteMedication, setMedicationTaken, updateMedication,
+  getUser, saveExpoPushToken, refillMedication, setMedicationFirestoreId,
+  getPatientIncomingLinkRequests, acceptLinkRequestAsPatient, rejectLinkRequest,
+} from '@/api/index';
+import { subscribePatientMedications } from '@/services/medicationRealtime';
+import { registerForPushNotificationsAsync, rescheduleMedicationLocalNotifications } from '@/lib/pushNotifications';
+import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
+import LinkCaretakerModal from '@/components/LinkCaretakerModal';
+import AppIcon from '@/components/AppIcon';
+import { bumpPatientActivity } from '@/lib/patientActivity';
+import { pickEarliestReminderSlot, parseTimeSlot } from '@/utils/algorithms/greedy';
+import { validateMedicationName } from '@/utils/algorithms/linear';
 
 const GREEN       = '#2d7a3a';
 const GREEN_DARK  = '#1e5c28';
@@ -22,17 +33,9 @@ const GREEN_LIGHT = '#e8f5e9';
 const RED         = '#d32f2f';
 const RED_LIGHT   = '#fdecea';
 
-interface Props { onLogout: () => void; uid: string; }
+interface Props { onLogout: () => void; uid: string; email: string; }
 
-interface Medication {
-  id: string;
-  firestoreId?: string;
-  name: string;
-  dosage: string;
-  frequency: string;
-  time: string;
-  taken: boolean;
-}
+type AddModalPayload = Omit<PatientMedication, 'taken' | 'firestoreId' | 'id'> & { id?: string };
 
 const DAYS   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = [
@@ -49,10 +52,9 @@ const FREQUENCIES = [
 const HOURS   = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
 const MINUTES = ['00','05','10','15','20','25','30','35','40','45','50','55'];
 
-type PatientTab = 'Home' | 'Add' | 'Calendar' | 'Medications' | 'Manage';
+type PatientTab = 'Home' | 'Calendar' | 'Medications' | 'Manage';
 const TABS: { icon: string; label: PatientTab }[] = [
   { icon: '🏠', label: 'Home' },
-  { icon: '➕', label: 'Add' },
   { icon: '📅', label: 'Calendar' },
   { icon: '💊', label: 'Medications' },
   { icon: '⚙️', label: 'Manage' },
@@ -70,11 +72,13 @@ function getFirstDay(y: number, m: number)    { return new Date(y, m, 1).getDay(
 interface AddModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (med: Omit<Medication, 'id' | 'taken'>) => Promise<void>;
+  onSave: (med: AddModalPayload) => Promise<void>;
   saving: boolean;
+  editingMed?: PatientMedication | null;
+  existingMedicationTimes?: string[];
 }
 
-function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps) {
+function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, existingMedicationTimes = [] }: AddModalProps) {
   const [name,           setName]           = useState('');
   const [dosage,         setDosage]         = useState('');
   const [freqIdx,        setFreqIdx]        = useState(0);
@@ -99,20 +103,49 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
 
   const handleClose = () => { reset(); onClose(); };
 
+  useEffect(() => {
+    if (!visible) return;
+    if (editingMed) {
+      setName(editingMed.name);
+      setDosage(editingMed.dosage === 'As prescribed' ? '' : editingMed.dosage);
+      const fi = FREQUENCIES.findIndex(f => f.label === editingMed.frequency);
+      setFreqIdx(fi >= 0 ? fi : 0);
+      const tm = editingMed.time.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (tm) {
+        setHour(tm[1].padStart(2, '0'));
+        setMinute(tm[2]);
+        setAmpm(tm[3].toUpperCase() === 'PM' ? 'PM' : 'AM');
+      }
+    } else {
+      reset();
+      const occupied = existingMedicationTimes
+        .map(parseTimeSlot)
+        .filter((s): s is NonNullable<ReturnType<typeof parseTimeSlot>> => s != null);
+      const suggested = pickEarliestReminderSlot(occupied);
+      const tm = suggested.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (tm) {
+        setHour(tm[1].padStart(2, '0'));
+        setMinute(tm[2]);
+        setAmpm(tm[3].toUpperCase() === 'PM' ? 'PM' : 'AM');
+      }
+    }
+  }, [visible, editingMed?.id, existingMedicationTimes.join('|')]);
+
   const showAlert = (title: string, msg: string) => {
     if (Platform.OS === 'web') window.alert(`${title}: ${msg}`);
     else Alert.alert(title, msg);
   };
 
   const handleSave = async () => {
-    if (!name.trim()) { showAlert('Required', 'Please enter a medication name.'); return; }
+    if (!validateMedicationName(name)) { showAlert('Required', 'Please enter a medication name.'); return; }
     await onSave({
+      ...(editingMed ? { id: editingMed.id } : {}),
       name:      name.trim(),
       dosage:    dosage.trim() || 'As prescribed',
       frequency: FREQUENCIES[freqIdx].label,
       time:      `${hour}:${minute} ${ampm}`,
     });
-    reset();
+    if (!editingMed) reset();
   };
 
   const y = calMonth.getFullYear();
@@ -123,15 +156,21 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
   ];
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={handleClose}>
       <View style={ms.overlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close add medication" />
         <View style={ms.sheet}>
+          <View style={ms.sheetGrab}>
+            <View style={ms.handle} />
+          </View>
 
-          <View style={ms.handle} />
-
-          <View style={ms.headerArea}>
-            <Text style={ms.pillIcon}>💊</Text>
-            <Text style={ms.title}>Set Reminder</Text>
+          <View style={ms.heroHeader}>
+            <View style={ms.heroIconWrap}>
+              <AppIcon name="medical" size={32} color={GREEN} />
+            </View>
+            <Text style={ms.heroKicker}>PillPal</Text>
+            <Text style={ms.title}>{editingMed ? 'Edit medication' : 'Add medication'}</Text>
+            <Text style={ms.heroSub}>Create a reminder your caregiver can see when linked.</Text>
           </View>
 
           <ScrollView
@@ -142,7 +181,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
             {/* Medicine Name */}
             <View style={ms.fieldGroup}>
               <View style={ms.labelRow}>
-                <Text style={ms.labelIcon}>🩺</Text>
+                <AppIcon name="fitness-outline" size={16} color={GREEN} />
                 <Text style={ms.label}>MEDICINE NAME *</Text>
               </View>
               <TextInput
@@ -175,7 +214,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
             {/* Frequency */}
             <View style={ms.fieldGroup}>
               <View style={ms.labelRow}>
-                <Text style={ms.labelIcon}>🔄</Text>
+                <AppIcon name="repeat-outline" size={16} color={GREEN} />
                 <Text style={ms.label}>FREQUENCY</Text>
               </View>
               <TouchableOpacity
@@ -302,7 +341,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
             {/* Time Picker */}
             <View style={ms.fieldGroup}>
               <View style={ms.labelRow}>
-                <Text style={ms.labelIcon}>⏰</Text>
+                <AppIcon name="time-outline" size={16} color={GREEN} />
                 <Text style={ms.label}>TIME *</Text>
               </View>
               <TouchableOpacity
@@ -310,7 +349,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
                 onPress={() => setShowTimePicker(v => !v)}
                 activeOpacity={0.8}
               >
-                <Text style={ms.timeIcon}>🕐</Text>
+                <AppIcon name="time-outline" size={18} color={GREEN} />
                 <Text style={[ms.dropdownText, { flex: 1 }]}>
                   {showTimePicker ? 'Select time' : `${hour}:${minute} ${ampm}`}
                 </Text>
@@ -323,7 +362,12 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
                   <View style={ms.timePickerRow}>
                     <View style={ms.timeCol}>
                       <Text style={ms.timeColLabel}>HR</Text>
-                      <ScrollView style={ms.timeScroll} showsVerticalScrollIndicator={false}>
+                      <ScrollView
+                        style={ms.timeScroll}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator
+                        keyboardShouldPersistTaps="handled"
+                      >
                         {HOURS.map(h => (
                           <TouchableOpacity
                             key={h}
@@ -338,7 +382,12 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
                     <Text style={ms.timeSep}>:</Text>
                     <View style={ms.timeCol}>
                       <Text style={ms.timeColLabel}>MIN</Text>
-                      <ScrollView style={ms.timeScroll} showsVerticalScrollIndicator={false}>
+                      <ScrollView
+                        style={ms.timeScroll}
+                        nestedScrollEnabled
+                        showsVerticalScrollIndicator
+                        keyboardShouldPersistTaps="handled"
+                      >
                         {MINUTES.map(mn => (
                           <TouchableOpacity
                             key={mn}
@@ -381,7 +430,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
               disabled={saving}
               activeOpacity={0.85}
             >
-              <Text style={ms.saveText}>{saving ? 'Saving...' : 'Save Reminder'}</Text>
+              <Text style={ms.saveText}>{saving ? 'Saving...' : 'Save reminder'}</Text>
             </TouchableOpacity>
           </View>
 
@@ -395,7 +444,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving }: AddModalProps)
 // MEDICATIONS CARD  (used on Home tab)
 // ─────────────────────────────────────────────────────────────
 interface MedCardProps {
-  medications: Medication[];
+  medications: PatientMedication[];
   onToggleTaken: (id: string) => void;
   onDelete: (id: string) => void;
   onAddPress: () => void;
@@ -463,12 +512,6 @@ function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: M
           ))}
         </View>
       )}
-
-      {medications.length > 0 && (
-        <TouchableOpacity style={mc.addBtn} onPress={onAddPress}>
-          <Text style={mc.addBtnText}>+ Add Medication</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 }
@@ -476,79 +519,102 @@ function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: M
 // ─────────────────────────────────────────────────────────────
 // MAIN PATIENT DASHBOARD
 // ─────────────────────────────────────────────────────────────
-export default function PatientDashboard({ onLogout, uid }: Props) {
+export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const { width } = Dimensions.get('window');
   const isTablet  = width >= 768;
   const insets    = useSafeAreaInsets();
 
   const [activeTab,     setActiveTab]     = useState<PatientTab>('Home');
-  const [medications,   setMedications]   = useState<Medication[]>([]);
+  const [medications,   setMedications]   = useState<PatientMedication[]>([]);
   const [saving,        setSaving]        = useState(false);
   const [showAddModal,  setShowAddModal]  = useState(false);
-  const [showLogout,    setShowLogout]    = useState(false);
+  const [editingMed,    setEditingMed]    = useState<PatientMedication | null>(null);
   const [selectedDate,  setSelectedDate]  = useState(new Date());
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [displayName, setDisplayName] = useState('Patient');
+  const [showLinkCaretaker, setShowLinkCaretaker] = useState(false);
+  const [patientIncomingReqs, setPatientIncomingReqs] = useState<any[]>([]);
 
   // ── Ref so callbacks always see current medications without stale closures ──
-  const medicationsRef = useRef<Medication[]>([]);
+  const medicationsRef = useRef<PatientMedication[]>([]);
   useEffect(() => { medicationsRef.current = medications; }, [medications]);
 
   const today      = new Date();
-  const takenToday = medications.filter(m => m.taken).length;
+  const takenToday = medications.filter(m => m.taken && !m.suspended).length;
 
-  // ── Load medications from Neon + attach Firestore real-time listener ──
   useEffect(() => {
     if (!uid) return;
-
-    // 1. Fetch initial data from Neon (fast first paint)
-    getMedications(uid)
-      .then(res => {
-        const rows: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-        setMedications(rows.map((row: any) => ({
-          id:          String(row.id),
-          name:        row.name        ?? '',
-          dosage:      row.dosage      ?? 'As prescribed',
-          frequency:   row.frequency   ?? '',
-          time:        row.time        ?? row.program ?? '',
-          taken:       row.taken       ?? false,
-          firestoreId: row.firestore_id ?? undefined,
-        })));
-      })
-      .catch(err => console.error('Failed to load medications:', err));
-
-    // 2. Attach real-time Firestore listener — fires on every device instantly
-    //    whenever any reminder document for this user changes.
-    const q = query(
-      collection(db, 'reminders'),
-      where('uid', '==', uid)
-    );
-
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        snapshot.docChanges().forEach(change => {
-          // Only care about updates (add handled locally, delete handled locally)
-          if (change.type === 'modified') {
-            const data = change.doc.data();
-            setMedications(prev =>
-              prev.map(m =>
-                m.firestoreId === change.doc.id
-                  ? { ...m, taken: data.taken ?? m.taken }
-                  : m
-              )
-            );
-          }
-        });
-      },
-      err => console.error('Firestore onSnapshot error:', err)
-    );
-
-    // Cleanup listener when component unmounts or uid changes
-    return () => unsub();
+    return subscribePatientMedications(uid, setMedications);
   }, [uid]);
 
-  // ── Save medication ──
-  const handleSaveMedication = useCallback(async (med: Omit<Medication, 'id' | 'taken'>) => {
+  useEffect(() => {
+    rescheduleMedicationLocalNotifications(medications).catch(() => {});
+  }, [medications]);
+
+  useEffect(() => {
+    registerForPushNotificationsAsync().then(token => {
+      if (token) saveExpoPushToken(uid, token).catch(() => {});
+    });
+  }, [uid]);
+
+  useEffect(() => {
+    getUser(uid)
+      .then(r => {
+        const n = (r.data?.full_name as string | undefined)?.trim();
+        setDisplayName(n || (email?.split('@')[0] ?? 'Patient'));
+      })
+      .catch(() => setDisplayName(email?.split('@')[0] ?? 'Patient'));
+  }, [uid, email]);
+
+  const loadPatientIncoming = useCallback(async () => {
+    try {
+      const res = await getPatientIncomingLinkRequests(uid);
+      setPatientIncomingReqs(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setPatientIncomingReqs([]);
+    }
+  }, [uid]);
+
+  useEffect(() => {
+    loadPatientIncoming();
+    const id = setInterval(loadPatientIncoming, 15000);
+    return () => clearInterval(id);
+  }, [loadPatientIncoming]);
+
+  // ── Add or update medication (modal) ──
+  const handleMedicationModalSave = useCallback(async (med: AddModalPayload) => {
+    if (med.id) {
+      setSaving(true);
+      try {
+        await updateMedication(Number(med.id), {
+          name: med.name,
+          dosage: med.dosage,
+          frequency: med.frequency,
+          time: med.time,
+        });
+        const cur = medicationsRef.current.find(m => m.id === med.id);
+        if (cur?.firestoreId) {
+          await updateDoc(doc(db, 'reminders', cur.firestoreId), {
+            name: med.name,
+            dosage: med.dosage,
+            frequency: med.frequency,
+            time: med.time,
+          });
+        }
+        setShowAddModal(false);
+        setEditingMed(null);
+        setActiveTab('Medications');
+        await bumpPatientActivity(uid, 'medication_update');
+      } catch (err) {
+        console.error(err);
+        if (Platform.OS === 'web') window.alert('Could not update medication.');
+        else Alert.alert('Error', 'Could not update medication.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     setSaving(true);
     try {
       const apiRes     = await addMedication({
@@ -558,7 +624,6 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
       const body       = apiRes.data;
       const postgresId = body?.id?.toString() ?? body?.data?.id?.toString() ?? Date.now().toString();
 
-      // Write to Firestore
       const firestoreDoc = await addDoc(collection(db, 'reminders'), {
         uid, postgres_id: postgresId,
         name: med.name, dosage: med.dosage,
@@ -566,15 +631,9 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
         taken: false, created_at: serverTimestamp(),
       });
 
-      // Persist Firestore ID back to Neon so the link survives reloads
       try {
-        await fetch(`/api/medications/${postgresId}/firestore-id`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ firestore_id: firestoreDoc.id }),
-        });
+        await setMedicationFirestoreId(Number(postgresId), firestoreDoc.id);
       } catch (e) {
-        // Non-fatal — app still works, just won't sync taken state after reload
         console.warn('Could not persist firestore_id to Neon:', e);
       }
 
@@ -586,6 +645,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
 
       setShowAddModal(false);
       setActiveTab('Home');
+      await bumpPatientActivity(uid, 'medication_update');
 
       if (Platform.OS === 'web') window.alert(`${med.name} has been added to your reminders.`);
       else Alert.alert('✅ Added', `${med.name} added to your reminders.`);
@@ -599,32 +659,36 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
   // ── Toggle taken ──
   // Uses medicationsRef so we always read the CURRENT value, never a stale closure.
   const handleToggleTaken = useCallback(async (id: string) => {
-    // Read current state from ref — avoids stale closure bug
     const med = medicationsRef.current.find(m => m.id === id);
     if (!med) return;
 
     const newTaken = !med.taken;
 
-    // Optimistic UI update immediately
     setMedications(prev =>
       prev.map(m => m.id === id ? { ...m, taken: newTaken } : m)
     );
 
-    // Write correct value to Firestore
+    try {
+      await setMedicationTaken(Number(id), newTaken);
+    } catch (err) {
+      setMedications(prev =>
+        prev.map(m => m.id === id ? { ...m, taken: med.taken } : m)
+      );
+      console.error('Toggle API failed:', err);
+      if (Platform.OS === 'web') window.alert('Could not update taken status.');
+      else Alert.alert('Error', 'Could not update taken status.');
+      return;
+    }
+
     if (med.firestoreId) {
       try {
         await updateDoc(doc(db, 'reminders', med.firestoreId), { taken: newTaken });
       } catch (err) {
-        // Rollback optimistic update on failure
-        setMedications(prev =>
-          prev.map(m => m.id === id ? { ...m, taken: med.taken } : m)
-        );
-        console.error('Toggle sync failed:', err);
-        if (Platform.OS === 'web') window.alert('Could not update. Please try again.');
-        else Alert.alert('Error', 'Could not update. Please try again.');
+        console.error('Firestore toggle failed:', err);
       }
     }
-  }, []); // no deps — reads from ref, writes to Firestore directly
+    await bumpPatientActivity(uid, newTaken ? 'medication_taken' : 'medication_update');
+  }, [uid]);
 
   // ── Delete medication ──
   const handleDeleteMed = useCallback((id: string) => {
@@ -646,6 +710,43 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
     }
   }, []);
 
+  const handleRefill = useCallback(async (id: string) => {
+    try {
+      await refillMedication(Number(id));
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleSuspendMed = useCallback(async (med: PatientMedication) => {
+    try {
+      await updateMedication(Number(med.id), {
+        name: med.name,
+        dosage: med.dosage,
+        frequency: med.frequency,
+        time: med.time,
+        suspended: !med.suspended,
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleToggleMedNotify = useCallback(async (med: PatientMedication) => {
+    const next = !(med.notify_enabled !== false);
+    try {
+      await updateMedication(Number(med.id), {
+        name: med.name,
+        dosage: med.dosage,
+        frequency: med.frequency,
+        time: med.time,
+        notify_enabled: next,
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   // Calendar helpers
   const getDaysInMonth2    = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   const getFirstDayOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1).getDay();
@@ -656,7 +757,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
       <View style={styles.greetingCard}>
         <Text style={styles.greetingIcon}>☀️</Text>
         <View style={{ flex: 1 }}>
-          <Text style={styles.greetingText}>Good day, Patient!</Text>
+          <Text style={styles.greetingText}>Good day, {displayName}!</Text>
           <Text style={styles.greetingSub}>Stay on track with your medication today.</Text>
         </View>
       </View>
@@ -678,7 +779,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
         medications={medications}
         onToggleTaken={handleToggleTaken}
         onDelete={handleDeleteMed}
-        onAddPress={() => setShowAddModal(true)}
+        onAddPress={() => { setEditingMed(null); setActiveTab('Medications'); setShowAddModal(true); }}
       />
 
       <TouchableOpacity
@@ -772,7 +873,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
           <View style={styles.calEmptyState}>
             <Text style={styles.calEmptyIcon}>📭</Text>
             <Text style={styles.calEmptyText}>No medications scheduled</Text>
-            <TouchableOpacity style={styles.calAddBtn} onPress={() => setShowAddModal(true)}>
+            <TouchableOpacity style={styles.calAddBtn} onPress={() => { setActiveTab('Medications'); setShowAddModal(true); }}>
               <Text style={styles.calAddBtnText}>+ Add Medication</Text>
             </TouchableOpacity>
           </View>
@@ -805,9 +906,11 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
     <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
       <View style={styles.profileHeader}>
         <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>P</Text>
+          <Text style={styles.profileAvatarText}>
+            {displayName.charAt(0).toUpperCase()}
+          </Text>
         </View>
-        <Text style={styles.profileName}>Patient</Text>
+        <Text style={styles.profileName}>{displayName}</Text>
         <Text style={styles.profileUid}>ID: {uid?.slice(0, 12)}...</Text>
       </View>
 
@@ -841,8 +944,56 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
 
       <Text style={styles.manageSection}>Account</Text>
 
+      <TouchableOpacity style={styles.manageRow} onPress={() => setShowLinkCaretaker(true)}>
+        <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>🔗</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.manageRowLabel}>Link caregiver / family</Text>
+          <Text style={styles.manageRowSub}>Share a code or send a link request</Text>
+        </View>
+        <Text style={styles.manageArrow}>›</Text>
+      </TouchableOpacity>
+
+      {patientIncomingReqs.length > 0 && (
+        <View style={{ marginBottom: 8 }}>
+          <Text style={[styles.manageSection, { marginTop: 4 }]}>Pending requests</Text>
+          {patientIncomingReqs.map((lr: any) => (
+            <View key={lr.id} style={styles.incomingReqCard}>
+              <Text style={styles.incomingReqTitle}>{lr.caretaker_name || lr.caretaker_email}</Text>
+              <Text style={styles.incomingReqSub}>Wants to support you on PillPal</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                <TouchableOpacity
+                  style={styles.incomingReqAccept}
+                  onPress={async () => {
+                    try {
+                      await acceptLinkRequestAsPatient(lr.id, uid);
+                      await loadPatientIncoming();
+                    } catch {
+                      Alert.alert('Error', 'Could not accept request.');
+                    }
+                  }}
+                >
+                  <Text style={styles.incomingReqAcceptText}>Accept</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.incomingReqReject}
+                  onPress={async () => {
+                    try {
+                      await rejectLinkRequest(lr.id, { patient_uid: uid });
+                      await loadPatientIncoming();
+                    } catch {
+                      Alert.alert('Error', 'Could not decline.');
+                    }
+                  }}
+                >
+                  <Text style={styles.incomingReqRejectText}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {[
-        { icon: '🔗', label: 'Linked Caretaker',      sub: 'No caretaker linked yet' },
         { icon: '🔔', label: 'Notification Settings', sub: 'Manage alerts' },
         { icon: '🔒', label: 'Privacy & Security',    sub: 'Manage your data' },
       ].map((item, i) => (
@@ -856,7 +1007,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
         </TouchableOpacity>
       ))}
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogout(true)}>
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
         <Text style={styles.logoutRowIcon}>🚪</Text>
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
@@ -869,14 +1020,17 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
   const renderScreen = () => {
     switch (activeTab) {
       case 'Home':        return <HomeScreen />;
-      case 'Add':         return <HomeScreen />;
       case 'Calendar':    return <CalendarScreen />;
       case 'Medications': return (
         <MedicationsScreen
           medications={medications}
           onToggleTaken={handleToggleTaken}
           onDelete={handleDeleteMed}
-          onAddPress={() => setShowAddModal(true)}
+          onAddPress={() => { setEditingMed(null); setShowAddModal(true); }}
+          onEdit={m => { setEditingMed(m); setShowAddModal(true); }}
+          onRefill={handleRefill}
+          onSuspend={handleSuspendMed}
+          onToggleNotify={handleToggleMedNotify}
         />
       );
       case 'Manage':      return <ManageScreen />;
@@ -891,7 +1045,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
         <Text style={[styles.headerTitle, isTablet && styles.headerTitleTablet]}>
           💊 Medicine Reminder
         </Text>
-        <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowLogout(true)}>
+        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </View>
@@ -903,10 +1057,7 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
           <TouchableOpacity
             key={tab.label}
             style={styles.tabItem}
-            onPress={() => {
-              if (tab.label === 'Add') { setShowAddModal(true); return; }
-              setActiveTab(tab.label);
-            }}
+            onPress={() => setActiveTab(tab.label)}
           >
             <Text style={styles.tabIcon}>{tab.icon}</Text>
             <Text style={[styles.tabLabel, activeTab === tab.label && { color: GREEN, fontWeight: '700' }]}>
@@ -918,15 +1069,20 @@ export default function PatientDashboard({ onLogout, uid }: Props) {
 
       <AddMedicationModal
         visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onSave={handleSaveMedication}
+        onClose={() => { setShowAddModal(false); setEditingMed(null); }}
+        onSave={handleMedicationModalSave}
         saving={saving}
+        editingMed={editingMed}
+        existingMedicationTimes={medications.map(m => m.time).filter(Boolean)}
       />
-
-      <LogoutModal
-        visible={showLogout}
-        onCancel={() => setShowLogout(false)}
-        onConfirm={() => { setShowLogout(false); onLogout(); }}
+      <LinkCaretakerModal
+        visible={showLinkCaretaker}
+        onClose={() => {
+          setShowLinkCaretaker(false);
+          loadPatientIncoming();
+        }}
+        uid={uid}
+        email={email}
       />
     </View>
   );
@@ -1058,6 +1214,14 @@ const styles = StyleSheet.create({
   logoutRowText: { fontSize: 15, fontWeight: '700', color: '#c62828' },
   versionText:   { textAlign: 'center', color: '#ccc', fontSize: 12, marginTop: 24 },
 
+  incomingReqCard:       { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderLeftWidth: 4, borderLeftColor: GREEN, marginBottom: 8 },
+  incomingReqTitle:      { fontSize: 15, fontWeight: '800', color: '#222' },
+  incomingReqSub:        { fontSize: 12, color: '#888', marginTop: 2 },
+  incomingReqAccept:     { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  incomingReqAcceptText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  incomingReqReject:     { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#ddd' },
+  incomingReqRejectText: { color: '#666', fontWeight: '700', fontSize: 13 },
+
   tabBar:  {
     flexDirection: 'row', backgroundColor: '#fff',
     borderTopWidth: 1, borderTopColor: '#eee', paddingVertical: 10,
@@ -1071,21 +1235,62 @@ const styles = StyleSheet.create({
 // ADD MEDICATION MODAL STYLES
 // ─────────────────────────────────────────────────────────────
 const ms = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 35, 18, 0.52)',
+    justifyContent: 'flex-end',
+  },
   sheet: {
-    backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    maxHeight: '92%', paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    maxHeight: '93%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    borderTopWidth: 4,
+    borderTopColor: GREEN,
+    shadowColor: '#0d2815',
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: -8 },
+    elevation: 18,
+  },
+  sheetGrab: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 6,
+    backgroundColor: '#f4faf4',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
   },
   handle: {
-    width: 40, height: 4, borderRadius: 2, backgroundColor: '#e0e0e0',
-    alignSelf: 'center', marginTop: 12,
+    width: 44, height: 5, borderRadius: 3,
+    backgroundColor: 'rgba(45, 122, 58, 0.28)',
   },
-  headerArea: {
-    alignItems: 'center', paddingTop: 20, paddingBottom: 8,
-    borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
+  heroHeader: {
+    backgroundColor: GREEN,
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 22,
   },
-  pillIcon:      { fontSize: 40, marginBottom: 6 },
-  title:         { fontSize: 22, fontWeight: '800', color: '#1a3a22', letterSpacing: -0.5 },
+  heroIconWrap: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  heroIcon: { fontSize: 26 },
+  heroKicker: {
+    fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.88)',
+    letterSpacing: 2, marginBottom: 4,
+  },
+  title: {
+    fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.4,
+  },
+  heroSub: {
+    fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 8, lineHeight: 19,
+  },
   scrollContent: { padding: 20, paddingBottom: 8, gap: 20 },
 
   fieldGroup: { gap: 8 },
@@ -1177,7 +1382,7 @@ const ms = StyleSheet.create({
   timePickerRow:  { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 8 },
   timeCol:        { flex: 1, alignItems: 'center' },
   timeColLabel:   { fontSize: 10, fontWeight: '800', color: '#aaa', letterSpacing: 1, marginBottom: 8 },
-  timeScroll:     { height: 160 },
+  timeScroll:     { height: 200, maxHeight: 220 },
   timeItem:       { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center', marginVertical: 1, minWidth: 56 },
   timeItemActive: { backgroundColor: GREEN },
   timeItemText:       { fontSize: 16, color: '#555', fontWeight: '500' },
@@ -1191,7 +1396,7 @@ const ms = StyleSheet.create({
   timeDoneBtn:  { backgroundColor: GREEN, margin: 12, marginTop: 4, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   timeDoneText: { color: '#fff', fontSize: 15, fontWeight: '800' },
 
-  footer:    { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  footer:    { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 4, borderTopWidth: 1, borderTopColor: '#edf3ed', backgroundColor: '#fafcfa' },
   cancelBtn: {
     flex: 1, paddingVertical: 16, borderRadius: 14,
     alignItems: 'center', backgroundColor: '#f5f5f5', borderWidth: 1.5, borderColor: '#e8e8e8',

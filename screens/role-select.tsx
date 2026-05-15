@@ -8,10 +8,12 @@ import { useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { syncUser } from '@/api/index';
+import AppIcon from '@/components/AppIcon';
 
 interface Props {
   uid: string;
   email: string;
+  signupProfile?: { full_name: string; age: number; health_condition: string | null } | null;
   onRoleSelected: (role: 'patient' | 'caretaker') => void;
   onBack: () => void;
 }
@@ -19,7 +21,7 @@ interface Props {
 const GREEN = '#2d7a3a';
 const GREEN_DARK = '#1e5c28';
 
-export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }: Props) {
+export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSelected, onBack }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
   const { width } = Dimensions.get('window');
   const isTablet = width >= 768;
@@ -28,7 +30,14 @@ export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }:
   const selectRole = async (role: 'patient' | 'caretaker') => {
     setLoading(role);
     try {
-      await syncUser({ firebase_uid: uid, email, role });
+      await syncUser({
+        firebase_uid: uid,
+        email,
+        role,
+        full_name: signupProfile?.full_name,
+        age: signupProfile?.age,
+        health_condition: signupProfile?.health_condition ?? undefined,
+      });
       onRoleSelected(role);
     } catch (err: any) {
       Alert.alert('Error', 'Could not save your role. Please try again.');
@@ -60,7 +69,11 @@ export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }:
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topSection}>
-            {isTablet && <Text style={styles.logoEmoji}>💊</Text>}
+            {isTablet && (
+              <View style={styles.logoCircle}>
+                <AppIcon name="medical" size={36} color="#fff" />
+              </View>
+            )}
             {isTablet && <Text style={styles.appName}>PillPal</Text>}
             <Text style={styles.title}>Who are you?</Text>
             <Text style={styles.subtitle}>Choose your account type to continue</Text>
@@ -69,7 +82,7 @@ export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }:
           <View style={[styles.cardsContainer, isTablet && styles.cardsRow]}>
             <View style={[styles.card, styles.patientCard, isTablet && styles.cardTablet]}>
               <View style={styles.iconCircle}>
-                <Text style={styles.cardIcon}>💊</Text>
+                <AppIcon name="medical" size={32} color={GREEN} />
               </View>
               <Text style={styles.cardTitle}>Patient</Text>
               <Text style={styles.cardDescLight}>
@@ -89,9 +102,9 @@ export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }:
 
             <View style={[styles.card, styles.caretakerCard, isTablet && styles.cardTablet]}>
               <View style={[styles.iconCircle, { backgroundColor: '#e8f5e9' }]}>
-                <Text style={styles.cardIcon}>👨‍⚕️</Text>
+                <AppIcon name="people" size={32} color={GREEN_DARK} />
               </View>
-              <Text style={[styles.cardTitle, { color: GREEN_DARK }]}>Caretaker</Text>
+              <Text style={[styles.cardTitle, { color: GREEN_DARK }]}>Caregiver/Family</Text>
               <Text style={[styles.cardDescLight, { color: '#555' }]}>
                 Monitor linked patients, track compliance, and manage medication schedules.
               </Text>
@@ -102,14 +115,14 @@ export default function RoleSelectScreen({ uid, email, onRoleSelected, onBack }:
               >
                 {loading === 'caretaker'
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.selectBtnText}>Select as Caretaker →</Text>
+                  : <Text style={styles.selectBtnText}>Select as Caregiver/Family →</Text>
                 }
               </TouchableOpacity>
             </View>
           </View>
 
           <Text style={styles.footer}>
-            You can switch roles anytime from your profile 💚
+            You can switch roles anytime from the Manage tab
           </Text>
         </ScrollView>
       </View>
@@ -149,7 +162,11 @@ const styles = StyleSheet.create({
   },
   scrollTablet: { paddingTop: 20 },
   topSection: { alignItems: 'center', marginBottom: 24 },
-  logoEmoji: { fontSize: 48, marginBottom: 6 },
+  logoCircle: {
+    width: 64, height: 64, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
   appName: { fontSize: 28, fontWeight: '800', color: '#fff', marginBottom: 12 },
   title: { fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 6 },
   subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.75)', textAlign: 'center' },
@@ -168,7 +185,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center', justifyContent: 'center', marginBottom: 14,
   },
-  cardIcon: { fontSize: 38 },
   cardTitle: { fontSize: 22, fontWeight: '800', color: '#fff', marginBottom: 10, textAlign: 'center' },
   cardDescLight: {
     fontSize: 14, color: 'rgba(255,255,255,0.75)',
