@@ -11,6 +11,8 @@ import PatientDashboard from './screens/patient-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
 import LogoutModal from './components/LogoutModal';
 
+type SignupProfile = { full_name: string; age: number; health_condition: string | null };
+
 type Screen = 'loading' | 'login' | 'roleSelect' | 'patientDash' | 'caretakerDash';
 
 export default function App() {
@@ -19,6 +21,7 @@ export default function App() {
   const [email, setEmail] = useState<string | null>(null);
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [signupProfile, setSignupProfile] = useState<SignupProfile | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -51,11 +54,18 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  const handleAuthSuccess = async (userId: string, userEmail: string, isNewUser: boolean) => {
+  const handleAuthSuccess = async (
+    userId: string,
+    userEmail: string,
+    isNewUser: boolean,
+    profile?: SignupProfile | null,
+  ) => {
     setUid(userId);
     setEmail(userEmail);
+    setSignupProfile(isNewUser && profile ? profile : null);
 
     if (!isNewUser) {
+      setSignupProfile(null);
       try {
         const cachedRole = await AsyncStorage.getItem(`role_${userId}`);
         if (cachedRole === 'patient' || cachedRole === 'caretaker') {
@@ -79,18 +89,17 @@ export default function App() {
 
   const handleRoleSelected = async (selectedRole: 'patient' | 'caretaker') => {
     setRole(selectedRole);
+    setSignupProfile(null);
     if (uid) {
       await AsyncStorage.setItem(`role_${uid}`, selectedRole);
     }
     setScreen(selectedRole === 'patient' ? 'patientDash' : 'caretakerDash');
   };
 
-  // Called by both dashboards — just opens the modal
   const handleLogout = () => {
     setShowLogoutModal(true);
   };
 
-  // Called when user confirms in the modal
   const performLogout = async () => {
     setShowLogoutModal(false);
     if (uid) {
@@ -100,6 +109,7 @@ export default function App() {
     setRole(null);
     setUid(null);
     setEmail(null);
+    setSignupProfile(null);
     setScreen('login');
   };
 
@@ -117,22 +127,23 @@ export default function App() {
         <RoleSelectScreen
           uid={uid!}
           email={email!}
+          signupProfile={signupProfile}
           onRoleSelected={handleRoleSelected}
           onBack={() => {
             setUid(null);
             setEmail(null);
+            setSignupProfile(null);
             setScreen('login');
           }}
         />
       )}
       {screen === 'patientDash' && (
-        <PatientDashboard onLogout={handleLogout} uid={uid!} />
+        <PatientDashboard onLogout={handleLogout} uid={uid!} email={email!} />
       )}
       {screen === 'caretakerDash' && (
         <CaretakerDashboard onLogout={handleLogout} uid={uid!} />
       )}
 
-      {/* Single modal instance at the root — works across both dashboards */}
       <LogoutModal
         visible={showLogoutModal}
         onConfirm={performLogout}

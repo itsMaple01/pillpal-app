@@ -16,7 +16,7 @@ router.get('/:caretaker_uid', async (req, res) => {
       LEFT JOIN dose_logs dl ON dl.patient_uid = cp.patient_uid
         AND dl.scheduled_at >= NOW() - INTERVAL '30 days'
       WHERE cp.caretaker_uid = $1
-      GROUP BY u.id, u.firebase_uid, u.email, u.role, u.full_name, u.age, u.created_at, cp.status
+      GROUP BY u.id, cp.status
     `, [req.params.caretaker_uid]);
     res.json(result.rows);
   } catch (err) {

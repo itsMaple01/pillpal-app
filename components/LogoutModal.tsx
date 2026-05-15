@@ -1,7 +1,10 @@
 import {
-  View, Text, TouchableOpacity, StyleSheet, Modal, Animated, useWindowDimensions,
+  View, Text, TouchableOpacity, StyleSheet, Modal, Animated,
 } from 'react-native';
 import { useEffect, useRef } from 'react';
+
+const GREEN = '#2d7a3a';
+const GREEN_LIGHT = '#e8f5e9';
 
 interface Props {
   visible: boolean;
@@ -29,37 +32,32 @@ export default function LogoutModal({ visible, onConfirm, onCancel }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onCancel}>
-      {/* Backdrop */}
       <Animated.View style={[s.backdrop, { opacity }]}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onCancel} />
 
-        {/* Card */}
         <Animated.View style={[s.card, { opacity, transform: [{ scale }] }]}>
-
-          {/* Icon + text row */}
-          <View style={s.topRow}>
-            <View style={s.iconCircle}>
-              <Text style={s.iconEmoji}>🚪</Text>
+          <View style={s.accentBar} />
+          <View style={s.cardInner}>
+            <View style={s.topRow}>
+              <View style={s.iconCircle}>
+                <Text style={s.iconEmoji}>💊</Text>
+              </View>
+              <View style={s.topText}>
+                <Text style={s.brand}>PillPal</Text>
+                <Text style={s.title}>Sign out?</Text>
+                <Text style={s.sub}>You will return to the login screen.</Text>
+              </View>
             </View>
-            <View style={s.topText}>
-              <Text style={s.title}>Log out of PillPal?</Text>
-              <Text style={s.sub}>You will be returned to the{'\n'}login screen.</Text>
+
+            <View style={s.actions}>
+              <TouchableOpacity style={s.btnCancel} onPress={onCancel} activeOpacity={0.75}>
+                <Text style={s.btnCancelText}>Stay signed in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.btnLogout} onPress={onConfirm} activeOpacity={0.8}>
+                <Text style={s.btnLogoutText}>Sign out</Text>
+              </TouchableOpacity>
             </View>
           </View>
-
-          {/* Divider */}
-          <View style={s.divider} />
-
-          {/* Actions */}
-          <View style={s.actions}>
-            <TouchableOpacity style={s.btnCancel} onPress={onCancel} activeOpacity={0.75}>
-              <Text style={s.btnCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.btnLogout} onPress={onConfirm} activeOpacity={0.8}>
-              <Text style={s.btnLogoutText}>Log out</Text>
-            </TouchableOpacity>
-          </View>
-
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -69,92 +67,103 @@ export default function LogoutModal({ visible, onConfirm, onCancel }: Props) {
 const s = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    backgroundColor: 'rgba(15, 40, 22, 0.48)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 28,
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: 22,
     width: '100%',
-    maxWidth: 340,
-    paddingTop: 22,
-    paddingHorizontal: 22,
-    paddingBottom: 16,
-    gap: 0,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
+    maxWidth: 360,
+    overflow: 'hidden',
+    shadowColor: '#0d2815',
+    shadowOpacity: 0.22,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 14,
   },
-
+  accentBar: {
+    height: 5,
+    backgroundColor: GREEN,
+  },
+  cardInner: {
+    paddingTop: 20,
+    paddingHorizontal: 22,
+    paddingBottom: 20,
+  },
   topRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 14,
-    marginBottom: 18,
+    marginBottom: 22,
   },
   iconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#fce4ec',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: GREEN_LIGHT,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    borderWidth: 1.5,
+    borderColor: 'rgba(45, 122, 58, 0.2)',
   },
-  iconEmoji: { fontSize: 22 },
+  iconEmoji: { fontSize: 24 },
   topText: { flex: 1, paddingTop: 2 },
+  brand: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: GREEN,
+    letterSpacing: 1.2,
+    marginBottom: 4,
+  },
   title: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111',
-    letterSpacing: -0.2,
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#142018',
+    letterSpacing: -0.3,
   },
   sub: {
     fontSize: 13,
-    color: '#888',
-    marginTop: 4,
-    lineHeight: 18,
+    color: '#6a736e',
+    marginTop: 8,
+    lineHeight: 19,
   },
-
-  divider: {
-    height: 1,
-    backgroundColor: '#f0f0f0',
-    marginBottom: 14,
-  },
-
   actions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
     gap: 10,
   },
   btnCancel: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#e0e0e0',
-    backgroundColor: '#fafafa',
+    borderColor: '#dfe8df',
+    backgroundColor: '#f7faf7',
+    alignItems: 'center',
   },
   btnCancelText: {
     fontSize: 14,
-    color: '#555',
-    fontWeight: '600',
+    color: '#3d4a40',
+    fontWeight: '700',
   },
   btnLogout: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#fce4ec',
-    borderWidth: 1.5,
-    borderColor: '#f8bbd0',
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: GREEN,
+    alignItems: 'center',
+    shadowColor: GREEN,
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   btnLogoutText: {
     fontSize: 14,
-    color: '#c62828',
-    fontWeight: '700',
+    color: '#fff',
+    fontWeight: '800',
   },
 });

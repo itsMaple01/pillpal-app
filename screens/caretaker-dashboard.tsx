@@ -1,13 +1,27 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions, TextInput,
-  ActivityIndicator, Alert, Platform,
+  ActivityIndicator, Alert, Platform, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState, useEffect } from 'react';
-import { getLinkedPatients, getMedications } from '@/api/index';
-import LogoutModal from '@/components/LogoutModal';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
+  acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
+} from '@/api/index';
+import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
+import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
+import { medicationTimeBucket } from '@/utils/medicationTimeBucket';
+import { patientMatchesSearch } from '@/utils/patientSearch';
+import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
+import LinkPatientModal from '@/components/Linkpatientmodal';
+import PatientSearchBar from '@/components/PatientSearchBar';
+import AppIcon, { TAB_ICONS } from '@/components/AppIcon';
+import type { ComponentProps } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+
+type IonName = ComponentProps<typeof Ionicons>['name'];
 
 interface Props {
   onLogout: () => void;
@@ -18,7 +32,7 @@ const GREEN       = '#2d7a3a';
 const GREEN_DARK  = '#1e5c28';
 const GREEN_LIGHT = '#e8f5e9';
 
-type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Alerts' | 'Profile';
+type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Alerts' | 'Manage';
 
 const FILTERS = ['All', 'Active', 'Inactive', 'Missed Doses', 'Needs Attention'];
 
@@ -38,15 +52,7 @@ interface Patient {
   missed_doses: number;
   compliance: number;
   link_status: string;
-}
-
-interface Medication {
-  id: string;
-  name: string;
-  dosage: string;
-  frequency: string;
-  time: string;
-  taken: boolean;
+  health_condition?: string;
 }
 
 function getPatientStatus(patient: Patient): string {
@@ -56,13 +62,13 @@ function getPatientStatus(patient: Patient): string {
   return 'Active';
 }
 
-const SIDE_TABS: { icon: string; label: CaretakerTab }[] = [
-  { icon: '🏠', label: 'Home' },
-  { icon: '👥', label: 'Patients' },
-  { icon: '📅', label: 'Schedule' },
-  { icon: '💊', label: 'Medications' },
-  { icon: '🔔', label: 'Alerts' },
-  { icon: '👤', label: 'Profile' },
+const SIDE_TABS: { icon: IonName; label: CaretakerTab }[] = [
+  { icon: TAB_ICONS.Home, label: 'Home' },
+  { icon: TAB_ICONS.Patients, label: 'Patients' },
+  { icon: TAB_ICONS.Schedule, label: 'Schedule' },
+  { icon: TAB_ICONS.Medications, label: 'Medications' },
+  { icon: TAB_ICONS.Alerts, label: 'Alerts' },
+  { icon: TAB_ICONS.Manage, label: 'Manage' },
 ];
 
 export default function CaretakerDashboard({ onLogout, uid }: Props) {
@@ -76,58 +82,112 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
   const [expandedId,   setExpandedId]   = useState<string | null>(null);
   const [patients,     setPatients]     = useState<Patient[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [showLogout,   setShowLogout]   = useState(false);
 
   // Medications tab state
   const [selectedPatient,    setSelectedPatient]    = useState<Patient | null>(null);
-  const [patientMedications, setPatientMedications] = useState<Medication[]>([]);
+  const [patientMedications, setPatientMedications] = useState<PatientMedication[]>([]);
   const [loadingMeds,        setLoadingMeds]        = useState(false);
+  const [scheduleByPatient,  setScheduleByPatient]  = useState<Record<string, PatientMedication[]>>({});
+  const [showLinkModal,      setShowLinkModal]      = useState(false);
+  const [linkRequests,       setLinkRequests]       = useState<any[]>([]);
+  const [caregiverName,      setCaregiverName]      = useState('');
+  const [editPatient,        setEditPatient]        = useState<Patient | null>(null);
+  const [editName,          setEditName]           = useState('');
+  const [editAge,           setEditAge]            = useState('');
+  const [editCondition,     setEditCondition]      = useState('');
 
-  useEffect(() => { fetchPatients(); }, []);
-
-  const showAlert = (title: string, message: string) => {
+  const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
     else Alert.alert(title, message);
-  };
+  }, []);
 
-  const fetchPatients = async () => {
-    setLoading(true);
+  const fetchPatients = useCallback(async (quiet?: boolean) => {
+    if (!quiet) setLoading(true);
     try {
       const res = await getLinkedPatients(uid);
-      setPatients(res.data);
-    } catch {
-      showAlert('Error', 'Could not load patients. Please try again.');
-    } finally { setLoading(false); }
-  };
+      const list = Array.isArray(res.data) ? res.data : [];
+      setPatients(list);
 
-  const loadPatientMedications = async (patient: Patient) => {
+      const next: Record<string, PatientMedication[]> = {};
+      for (const p of list) {
+        try {
+          const mres = await getMedications(p.firebase_uid);
+          const rows = Array.isArray(mres.data) ? mres.data : [];
+          next[p.firebase_uid] = mapMedicationRows(rows);
+        } catch {
+          next[p.firebase_uid] = [];
+        }
+      }
+      setScheduleByPatient(next);
+    } catch {
+      if (!quiet) showAlert('Error', 'Could not load patients. Please try again.');
+    } finally { if (!quiet) setLoading(false); }
+  }, [uid, showAlert]);
+
+  useEffect(() => {
+    getUser(uid)
+      .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
+      .catch(() => {});
+  }, [uid]);
+
+  useEffect(() => { fetchPatients(false); }, [fetchPatients]);
+
+  const patientUidKey = patients.map(p => p.firebase_uid).sort().join(',');
+
+  useEffect(() => {
+    if (!patientUidKey) return;
+    return subscribeCaretakerOverview(
+      patients.map(p => p.firebase_uid),
+      {
+        onOverviewChange: () => { fetchPatients(true); },
+        onPatientMeds: (patientUid, meds) => {
+          setScheduleByPatient(prev => ({ ...prev, [patientUid]: meds }));
+        },
+      },
+    );
+  }, [patientUidKey, fetchPatients]);
+
+  useEffect(() => {
+    if (!selectedPatient) {
+      setPatientMedications([]);
+      setLoadingMeds(false);
+      return;
+    }
+    setLoadingMeds(true);
+    const unsub = subscribePatientMedications(selectedPatient.firebase_uid, meds => {
+      setPatientMedications(meds);
+      setLoadingMeds(false);
+    });
+    return () => unsub();
+  }, [selectedPatient?.firebase_uid]);
+
+  const fetchLinkRequests = useCallback(async () => {
+    try {
+      const res = await getIncomingLinkRequests(uid);
+      setLinkRequests(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setLinkRequests([]);
+    }
+  }, [uid]);
+
+  useEffect(() => {
+    fetchLinkRequests();
+  }, [fetchLinkRequests]);
+
+  useEffect(() => {
+    const id = setInterval(fetchLinkRequests, 15000);
+    return () => clearInterval(id);
+  }, [fetchLinkRequests]);
+
+  const loadPatientMedications = (patient: Patient) => {
     setSelectedPatient(patient);
     setActiveTab('Medications');
-    setLoadingMeds(true);
-    try {
-      const res  = await getMedications(patient.firebase_uid);
-      const rows: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-      setPatientMedications(rows.map((row: any) => ({
-        id:        String(row.id),
-        name:      row.name      ?? '',
-        dosage:    row.dosage    ?? 'As prescribed',
-        frequency: row.frequency ?? '',
-        time:      row.time      ?? row.program ?? '',
-        taken:     row.taken     ?? false,
-      })));
-    } catch {
-      showAlert('Error', 'Could not load medications for this patient.');
-      setPatientMedications([]);
-    } finally { setLoadingMeds(false); }
   };
 
   const filtered = patients.filter(p => {
     const status = getPatientStatus(p);
     const matchFilter = activeFilter === 'All' || status === activeFilter;
-    const matchSearch =
-      (p.full_name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-      (p.email     ?? '').toLowerCase().includes(search.toLowerCase());
-    return matchFilter && matchSearch;
+    return matchFilter && patientMatchesSearch(p, search);
   });
 
   const stats = {
@@ -137,11 +197,13 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     attention: patients.filter(p => getPatientStatus(p) === 'Needs Attention').length,
   };
 
-  // ── HOME SCREEN ──
-  const HomeScreen = () => (
+  // ── HOME SCREEN (render fn — not a nested component, keeps TextInput focus stable) ──
+  const renderHomeTab = () => (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 32 }}>
       <View style={styles.homeGreeting}>
-        <Text style={styles.homeGreetingTitle}>👋 Welcome back!</Text>
+        <Text style={styles.homeGreetingTitle}>
+          👋 Welcome back{caregiverName ? `, ${caregiverName.split(/\s+/)[0]}` : ''}!
+        </Text>
         <Text style={styles.homeGreetingSub}>Here's a quick overview of your patients.</Text>
       </View>
 
@@ -259,6 +321,17 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                 <Text style={styles.actionBtnOutlineText}>📋 Schedule</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity
+              style={[styles.actionBtnOutline, { marginTop: 8 }]}
+              onPress={() => {
+                setEditPatient(patient);
+                setEditName((patient.full_name || '').trim());
+                setEditAge(patient.age != null ? String(patient.age) : '');
+                setEditCondition((patient.health_condition || '').trim());
+              }}
+            >
+              <Text style={styles.actionBtnOutlineText}>✏️ Edit patient info</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.actionBtnOutline, { marginTop: 8 }]}>
               <Text style={styles.actionBtnOutlineText}>✉️ Send Reminder</Text>
             </TouchableOpacity>
@@ -268,7 +341,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     );
   };
 
-  const PatientsScreen = () => (
+  const renderPatientsTab = () => (
     <View style={styles.mainContent}>
       <View style={{ padding: 16, gap: 10 }}>
         <View style={styles.statsRow}>
@@ -286,16 +359,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           ))}
         </View>
 
-        <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search patients..."
-            placeholderTextColor="#aaa"
-            value={search}
-            onChangeText={setSearch}
-          />
-        </View>
+        <PatientSearchBar value={search} onChangeText={setSearch} />
 
         <ScrollView
           horizontal showsHorizontalScrollIndicator={false}
@@ -312,6 +376,51 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
+        {linkRequests.length > 0 && (
+          <View style={{ paddingHorizontal: 16, marginBottom: 8, gap: 8 }}>
+            <Text style={styles.screenTitle}>Pending link requests</Text>
+            {linkRequests.map((lr: any) => (
+              <View key={lr.id} style={styles.requestCard}>
+                <Text style={styles.requestTitle}>{lr.patient_name || lr.patient_email}</Text>
+                <Text style={styles.requestSub}>Wants to connect with you</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                  <TouchableOpacity
+                    style={styles.requestAccept}
+                    onPress={async () => {
+                      try {
+                        await acceptLinkRequest(lr.id, uid);
+                        await fetchPatients(true);
+                        await fetchLinkRequests();
+                      } catch (e) {
+                        showAlert('Error', 'Could not accept.');
+                      }
+                    }}
+                  >
+                    <Text style={styles.requestAcceptText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.requestReject}
+                    onPress={async () => {
+                      try {
+                        await rejectLinkRequest(lr.id, { caretaker_uid: uid });
+                        await fetchLinkRequests();
+                      } catch (e) {
+                        showAlert('Error', 'Could not decline.');
+                      }
+                    }}
+                  >
+                    <Text style={styles.requestRejectText}>Decline</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.linkPatientBtn} onPress={() => setShowLinkModal(true)}>
+          <Text style={styles.linkPatientBtnText}>＋ Link a patient</Text>
+        </TouchableOpacity>
 
         {isTablet && (
           <View style={styles.tableHeader}>
@@ -455,7 +564,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
   };
 
   // ── SCHEDULE SCREEN ──
-  const ScheduleScreen = () => (
+  const renderScheduleTab = () => (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.screenTitle}>📅 Patient Schedules</Text>
@@ -490,12 +599,25 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
             </View>
             <View style={styles.scheduleDivider} />
             <View style={styles.scheduleTimeSlots}>
-              {['Morning', 'Afternoon', 'Evening'].map((slot, i) => (
-                <View key={i} style={styles.scheduleSlot}>
-                  <Text style={styles.scheduleSlotTime}>{slot}</Text>
-                  <Text style={styles.scheduleSlotEmpty}>No meds</Text>
-                </View>
-              ))}
+              {(['Morning', 'Afternoon', 'Evening'] as const).map((slot, i) => {
+                const meds = (scheduleByPatient[p.firebase_uid] || []).filter(
+                  m => !m.suspended && medicationTimeBucket(m.time) === slot,
+                );
+                return (
+                  <View key={i} style={styles.scheduleSlot}>
+                    <Text style={styles.scheduleSlotTime}>{slot}</Text>
+                    {meds.length === 0 ? (
+                      <Text style={styles.scheduleSlotEmpty}>No meds</Text>
+                    ) : (
+                      meds.map(m => (
+                        <Text key={m.id} style={styles.scheduleMedLine} numberOfLines={2}>
+                          {m.taken ? '✓ ' : '○ '}{m.name} · {m.time}
+                        </Text>
+                      ))
+                    )}
+                  </View>
+                );
+              })}
             </View>
           </View>
         ))
@@ -504,7 +626,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
   );
 
   // ── ALERTS SCREEN ──
-  const AlertsScreen = () => {
+  const renderAlertsTab = () => {
     const alertPatients = patients.filter(p =>
       getPatientStatus(p) !== 'Active' && getPatientStatus(p) !== 'Inactive'
     );
@@ -552,14 +674,16 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     );
   };
 
-  // ── PROFILE SCREEN ──
-  const ProfileScreen = () => (
+  // ── MANAGE SCREEN ──
+  const renderManageTab = () => (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
       <View style={styles.profileHeader}>
         <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>C</Text>
+          <Text style={styles.profileAvatarText}>
+            {(caregiverName || 'Caregiver').charAt(0).toUpperCase()}
+          </Text>
         </View>
-        <Text style={styles.profileName}>Caretaker</Text>
+        <Text style={styles.profileName}>{caregiverName || 'Caregiver/Family'}</Text>
         <Text style={styles.profileUid}>ID: {uid?.slice(0, 12)}...</Text>
       </View>
 
@@ -571,13 +695,17 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         { icon: '💊', label: 'Medications',      sub: 'View all patient medications',
           onPress: () => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); } },
       ].map((item, i) => (
-        <TouchableOpacity key={i} style={styles.manageRow} onPress={(item as any).onPress}>
+        <TouchableOpacity
+          key={i}
+          style={styles.manageRow}
+          onPress={() => (item as { onPress?: () => void }).onPress?.()}
+        >
           <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={styles.manageRowLabel}>{item.label}</Text>
             <Text style={styles.manageRowSub}>{item.sub}</Text>
           </View>
-          {(item as any).onPress && <Text style={styles.manageArrow}>›</Text>}
+          {(item as { onPress?: () => void }).onPress ? <Text style={styles.manageArrow}>›</Text> : null}
         </TouchableOpacity>
       ))}
 
@@ -597,7 +725,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         </TouchableOpacity>
       ))}
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogout(true)}>
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
         <Text style={styles.logoutRowIcon}>🚪</Text>
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
@@ -607,40 +735,110 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
   const renderScreen = () => {
     switch (activeTab) {
-      case 'Home':        return <HomeScreen />;
-      case 'Patients':    return <PatientsScreen />;
-      case 'Schedule':    return <ScheduleScreen />;
+      case 'Home':        return renderHomeTab();
+      case 'Patients':    return renderPatientsTab();
+      case 'Schedule':    return renderScheduleTab();
       case 'Medications': return <MedicationsTab />;
-      case 'Alerts':      return <AlertsScreen />;
-      case 'Profile':     return <ProfileScreen />;
+      case 'Alerts':      return renderAlertsTab();
+      case 'Manage':      return renderManageTab();
     }
   };
 
   const screenTitles: Record<CaretakerTab, string> = {
-    Home:        '🏠 Dashboard',
-    Patients:    '👨‍⚕️ Caretaker Dashboard',
-    Schedule:    '📅 Schedules',
-    Medications: '💊 Medications',
-    Alerts:      '🔔 Alerts',
-    Profile:     '👤 Profile',
+    Home:        'Dashboard',
+    Patients:    'Caregiver/Family Dashboard',
+    Schedule:    'Schedules',
+    Medications: 'Medications',
+    Alerts:      'Alerts',
+    Manage:      'Manage',
   };
   const screenSubs: Record<CaretakerTab, string> = {
-    Home:        'Welcome back, Caretaker!',
+    Home:        'Welcome back!',
     Patients:    "Good day! Here's your patient overview.",
     Schedule:    'View all patient medication schedules.',
     Medications: 'View medications for each patient.',
     Alerts:      'Patients that need your attention.',
-    Profile:     'Your account and settings.',
+    Manage:      'Your account and settings.',
   };
+
+  const saveEditedPatient = async () => {
+    if (!editPatient) return;
+    const ageNum = parseInt(editAge, 10);
+    if (!editName.trim()) {
+      showAlert('Required', 'Please enter the patient name.');
+      return;
+    }
+    if (!Number.isFinite(ageNum) || ageNum < 1 || ageNum > 120) {
+      showAlert('Age', 'Please enter a valid age (1–120).');
+      return;
+    }
+    try {
+      await updateLinkedPatientProfile(editPatient.firebase_uid, {
+        caretaker_uid: uid,
+        full_name: editName.trim(),
+        age: ageNum,
+        health_condition: editCondition.trim() || null,
+      });
+      setEditPatient(null);
+      await fetchPatients(true);
+    } catch {
+      showAlert('Error', 'Could not save patient profile.');
+    }
+  };
+
+  const editPatientModal = (
+    <Modal visible={editPatient !== null} transparent animationType="fade" onRequestClose={() => setEditPatient(null)}>
+      <View style={styles.editModalOverlay}>
+        <View style={styles.editModalCard}>
+          <Text style={styles.editModalTitle}>Edit patient</Text>
+          <Text style={styles.editModalLabel}>Name</Text>
+          <TextInput
+            style={styles.editModalInput}
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Full name"
+            placeholderTextColor="#aaa"
+          />
+          <Text style={styles.editModalLabel}>Age</Text>
+          <TextInput
+            style={styles.editModalInput}
+            value={editAge}
+            onChangeText={setEditAge}
+            keyboardType="number-pad"
+            placeholder="Age"
+            placeholderTextColor="#aaa"
+          />
+          <Text style={styles.editModalLabel}>Condition (optional)</Text>
+          <TextInput
+            style={[styles.editModalInput, { minHeight: 64, textAlignVertical: 'top' }]}
+            value={editCondition}
+            onChangeText={setEditCondition}
+            placeholder="e.g. Diabetes"
+            placeholderTextColor="#aaa"
+            multiline
+          />
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+            <TouchableOpacity style={styles.editModalCancel} onPress={() => setEditPatient(null)}>
+              <Text style={styles.editModalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.editModalSave} onPress={saveEditedPatient}>
+              <Text style={styles.editModalSaveText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 
   // ── TABLET LAYOUT ──
   if (isTablet) {
     return (
-      <View style={[styles.outer, { flexDirection: 'row' }]}>
+      <>
+        <View style={[styles.outer, { flexDirection: 'row' }]}>
         <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
         <View style={[styles.sidebar, { paddingTop: insets.top + 16 }]}>
           <View style={styles.sidebarLogo}>
-            <Text style={styles.sidebarLogoIcon}>💊</Text>
+            <AppIcon name="medical" size={26} color="#fff" />
             <Text style={styles.sidebarLogoText}>PillPal</Text>
           </View>
           <View style={styles.sidebarNav}>
@@ -650,18 +848,16 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                 style={[styles.sidebarItem, activeTab === tab.label && styles.sidebarItemActive]}
                 onPress={() => setActiveTab(tab.label)}
               >
-                <Text style={styles.sidebarIcon}>{tab.icon}</Text>
+                <AppIcon
+                  name={tab.icon}
+                  size={20}
+                  color={activeTab === tab.label ? '#fff' : 'rgba(255,255,255,0.75)'}
+                />
                 <Text style={[styles.sidebarLabel, activeTab === tab.label && styles.sidebarLabelActive]}>
                   {tab.label}
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
-          <View style={styles.sidebarBottom}>
-            <TouchableOpacity style={styles.sidebarLogout} onPress={() => setShowLogout(true)}>
-              <Text style={styles.sidebarIcon}>🚪</Text>
-              <Text style={styles.sidebarLogoutText}>Log out</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -671,29 +867,32 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
               <Text style={styles.tabletHeaderTitle}>{screenTitles[activeTab]}</Text>
               <Text style={styles.tabletHeaderSub}>{screenSubs[activeTab]}</Text>
             </View>
-            <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowLogout(true)}>
+            <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
               <Text style={styles.logoutText}>Log out</Text>
             </TouchableOpacity>
           </View>
           {renderScreen()}
         </View>
-
-        <LogoutModal
-          visible={showLogout}
-          onCancel={() => setShowLogout(false)}
-          onConfirm={() => { setShowLogout(false); onLogout(); }}
+        </View>
+        <LinkPatientModal
+          visible={showLinkModal}
+          onClose={() => setShowLinkModal(false)}
+          caretakerUid={uid}
+          onLinked={() => { fetchPatients(false); fetchLinkRequests(); }}
         />
-      </View>
+        {editPatientModal}
+      </>
     );
   }
 
   // ── MOBILE LAYOUT ──
   return (
+    <>
     <View style={styles.outer}>
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <Text style={styles.headerTitle}>{screenTitles[activeTab]}</Text>
-        <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowLogout(true)}>
+        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
       </View>
@@ -703,20 +902,26 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
         {SIDE_TABS.map(tab => (
           <TouchableOpacity key={tab.label} style={styles.tabItem} onPress={() => setActiveTab(tab.label)}>
-            <Text style={styles.tabIcon}>{tab.icon}</Text>
+            <AppIcon
+              name={tab.icon}
+              size={22}
+              color={activeTab === tab.label ? GREEN : '#aaa'}
+            />
             <Text style={[styles.tabLabel, activeTab === tab.label && { color: GREEN, fontWeight: '700' }]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
-
-      <LogoutModal
-        visible={showLogout}
-        onCancel={() => setShowLogout(false)}
-        onConfirm={() => { setShowLogout(false); onLogout(); }}
-      />
     </View>
+    <LinkPatientModal
+      visible={showLinkModal}
+      onClose={() => setShowLinkModal(false)}
+      caretakerUid={uid}
+      onLinked={() => { fetchPatients(false); fetchLinkRequests(); }}
+    />
+    {editPatientModal}
+    </>
   );
 }
 
@@ -778,7 +983,6 @@ const styles = StyleSheet.create({
   sidebar: {
     width: 200, backgroundColor: GREEN_DARK,
     paddingHorizontal: 16, paddingBottom: 24,
-    justifyContent: 'space-between',
   },
   sidebarLogo:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 32 },
   sidebarLogoIcon: { fontSize: 28 },
@@ -789,13 +993,6 @@ const styles = StyleSheet.create({
   sidebarIcon:         { fontSize: 18 },
   sidebarLabel:        { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600' },
   sidebarLabelActive:  { color: '#fff' },
-  sidebarBottom:       { marginTop: 16 },
-  sidebarLogout: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
-  },
-  sidebarLogoutText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
   tabletHeader: {
     backgroundColor: GREEN, flexDirection: 'row',
@@ -913,9 +1110,21 @@ const styles = StyleSheet.create({
   schedulePatientSub:    { fontSize: 12, color: '#888', marginTop: 2 },
   scheduleDivider:       { height: 1, backgroundColor: '#f0f0f0' },
   scheduleTimeSlots:     { flexDirection: 'row', padding: 12, gap: 8 },
-  scheduleSlot:          { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10, alignItems: 'center' },
+  scheduleSlot:          { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10, alignItems: 'flex-start' },
   scheduleSlotTime:      { fontSize: 11, fontWeight: '700', color: '#444', marginBottom: 4 },
   scheduleSlotEmpty:     { fontSize: 11, color: '#bbb' },
+  scheduleMedLine:       { fontSize: 11, color: '#444', alignSelf: 'stretch', textAlign: 'left', marginTop: 2 },
+
+  requestCard:       { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderLeftWidth: 4, borderLeftColor: GREEN, marginBottom: 8 },
+  requestTitle:      { fontSize: 15, fontWeight: '800', color: '#222' },
+  requestSub:        { fontSize: 12, color: '#888', marginTop: 2 },
+  requestAccept:     { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  requestAcceptText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  requestReject:     { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#ddd' },
+  requestRejectText: { color: '#666', fontWeight: '700', fontSize: 13 },
+
+  linkPatientBtn:     { backgroundColor: GREEN_DARK, borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginHorizontal: 16, marginBottom: 8 },
+  linkPatientBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 
   // Alerts
   alertAllClear:      { alignItems: 'center', paddingVertical: 48, backgroundColor: '#fff', borderRadius: 16 },
@@ -932,7 +1141,7 @@ const styles = StyleSheet.create({
   alertInfoTitle:    { fontSize: 14, fontWeight: '800', color: '#1565c0', marginBottom: 8 },
   alertInfoText:     { fontSize: 13, color: '#1565c0', marginBottom: 4 },
 
-  // Profile
+  // Manage (account)
   profileHeader:     { alignItems: 'center', paddingVertical: 24 },
   profileAvatar:     { width: 72, height: 72, borderRadius: 36, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   profileAvatarText: { fontSize: 32, fontWeight: '800', color: '#fff' },
@@ -948,6 +1157,16 @@ const styles = StyleSheet.create({
   logoutRowIcon:     { fontSize: 20 },
   logoutRowText:     { fontSize: 15, fontWeight: '700', color: '#c62828' },
   versionText:       { textAlign: 'center', color: '#ccc', fontSize: 12, marginTop: 24 },
+
+  editModalOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 },
+  editModalCard:     { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  editModalTitle:    { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 14 },
+  editModalLabel:    { fontSize: 12, fontWeight: '700', color: '#888', marginBottom: 6 },
+  editModalInput:    { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#222', marginBottom: 12 },
+  editModalCancel:   { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  editModalCancelText: { fontWeight: '700', color: '#666' },
+  editModalSave:     { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  editModalSaveText: { fontWeight: '800', color: '#fff' },
 
   // Tab bar
   tabBar:   { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingVertical: 10 },
