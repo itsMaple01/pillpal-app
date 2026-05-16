@@ -50,7 +50,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
 /** Local daily reminders per medication (device-only; works in Expo Go). */
 export async function rescheduleMedicationLocalNotifications(meds: PatientMedication[]) {
-  if (Platform.OS === 'web') return;
+  if (Platform.OS === 'web' || isExpoGo()) return;
   try {
     const Notifications = await import('expo-notifications');
     await Notifications.cancelAllScheduledNotificationsAsync();

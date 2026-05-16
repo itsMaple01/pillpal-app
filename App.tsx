@@ -10,6 +10,7 @@ import RoleSelectScreen from './screens/role-select';
 import PatientDashboard from './screens/patient-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
 import LogoutModal from './components/LogoutModal';
+import OfflineBanner from './components/OfflineBanner';
 
 type SignupProfile = { full_name: string; age: number; health_condition: string | null };
 
@@ -115,6 +116,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+      {screen !== 'loading' && screen !== 'login' && <OfflineBanner />}
       {screen === 'loading' && (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2d7a3a' }}>
           <ActivityIndicator size="large" color="#fff" />

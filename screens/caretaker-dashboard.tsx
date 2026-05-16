@@ -11,6 +11,9 @@ import {
 } from '@/api/index';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
+import { cachePatients, getCachedPatients } from '@/lib/offline/store';
+import { flushOfflineQueue } from '@/lib/offline/sync';
+import { useNetworkStatus } from '@/lib/offline/network';
 import { medicationTimeBucket } from '@/utils/medicationTimeBucket';
 import { patientMatchesSearch } from '@/utils/patientSearch';
 import type { PatientMedication } from '@/types/medication';
@@ -101,12 +104,16 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     else Alert.alert(title, message);
   }, []);
 
+  const { isConnected, isInternetReachable } = useNetworkStatus();
+  const online = isConnected && isInternetReachable;
+
   const fetchPatients = useCallback(async (quiet?: boolean) => {
     if (!quiet) setLoading(true);
     try {
       const res = await getLinkedPatients(uid);
       const list = Array.isArray(res.data) ? res.data : [];
       setPatients(list);
+      await cachePatients(uid, list);
 
       const next: Record<string, PatientMedication[]> = {};
       for (const p of list) {
@@ -120,9 +127,18 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       }
       setScheduleByPatient(next);
     } catch {
-      if (!quiet) showAlert('Error', 'Could not load patients. Please try again.');
+      const cached = await getCachedPatients(uid);
+      if (cached?.length) {
+        setPatients(cached as Patient[]);
+      } else if (!quiet) {
+        showAlert('Error', 'Could not load patients. Check your connection.');
+      }
     } finally { if (!quiet) setLoading(false); }
   }, [uid, showAlert]);
+
+  useEffect(() => {
+    if (online) flushOfflineQueue().then(n => { if (n > 0) fetchPatients(true); });
+  }, [online, fetchPatients]);
 
   useEffect(() => {
     getUser(uid)
@@ -260,7 +276,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           onPress={() => setExpandedId(isExpanded ? null : patient.firebase_uid)}
           activeOpacity={0.8}
         >
-          <View style={styles.patientLeft}>
+          <View style={[styles.patientLeft, styles.colPatient]}>
             <Text style={styles.chevron}>{isExpanded ? '▼' : '▶'}</Text>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
@@ -274,16 +290,22 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           </View>
           {isTablet ? (
             <View style={styles.patientMeta}>
-              <Text style={[styles.metaText, { color: (patient.missed_doses ?? 0) > 0 ? '#e65100' : GREEN, fontWeight: '700' }]}>
-                {patient.missed_doses ?? 0} missed
-              </Text>
-              <View style={[styles.compliancePill, { backgroundColor: (patient.compliance ?? 0) >= 80 ? GREEN_LIGHT : (patient.compliance ?? 0) >= 60 ? '#fff3e0' : '#fce4ec' }]}>
-                <Text style={[styles.complianceText, { color: (patient.compliance ?? 0) >= 80 ? GREEN : (patient.compliance ?? 0) >= 60 ? '#e65100' : '#c62828' }]}>
-                  {patient.compliance ?? 0}%
+              <View style={styles.metaCol}>
+                <Text style={[styles.metaText, { color: (patient.missed_doses ?? 0) > 0 ? '#e65100' : GREEN }]}>
+                  {patient.missed_doses ?? 0} missed
                 </Text>
               </View>
-              <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
-                <Text style={[styles.statusText, { color: statusColor.text }]}>{status}</Text>
+              <View style={styles.metaCol}>
+                <View style={[styles.compliancePill, { backgroundColor: (patient.compliance ?? 0) >= 80 ? GREEN_LIGHT : (patient.compliance ?? 0) >= 60 ? '#fff3e0' : '#fce4ec' }]}>
+                  <Text style={[styles.complianceText, { color: (patient.compliance ?? 0) >= 80 ? GREEN : (patient.compliance ?? 0) >= 60 ? '#e65100' : '#c62828' }]}>
+                    {patient.compliance ?? 0}%
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.metaCol}>
+                <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
+                  <Text style={[styles.statusText, { color: statusColor.text }]}>{status}</Text>
+                </View>
               </View>
             </View>
           ) : (
@@ -359,7 +381,13 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           ))}
         </View>
 
-        <PatientSearchBar value={search} onChangeText={setSearch} />
+        <View style={styles.searchLinkRow}>
+          <PatientSearchBar value={search} onChangeText={setSearch} style={{ flex: 1 }} />
+          <TouchableOpacity style={styles.linkBtnCompact} onPress={() => setShowLinkModal(true)}>
+            <AppIcon name="link" size={18} color="#fff" />
+            <Text style={styles.linkBtnCompactText}>Link</Text>
+          </TouchableOpacity>
+        </View>
 
         <ScrollView
           horizontal showsHorizontalScrollIndicator={false}
@@ -418,16 +446,12 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           </View>
         )}
 
-        <TouchableOpacity style={styles.linkPatientBtn} onPress={() => setShowLinkModal(true)}>
-          <Text style={styles.linkPatientBtnText}>＋ Link a patient</Text>
-        </TouchableOpacity>
-
         {isTablet && (
           <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderText, { flex: 2 }]}>Patient</Text>
-            <Text style={styles.tableHeaderText}>Missed</Text>
-            <Text style={styles.tableHeaderText}>Compliance</Text>
-            <Text style={styles.tableHeaderText}>Status</Text>
+            <Text style={[styles.tableHeaderText, styles.colPatient]}>Patient</Text>
+            <Text style={[styles.tableHeaderText, styles.colMeta]}>Missed</Text>
+            <Text style={[styles.tableHeaderText, styles.colMeta]}>Compliance</Text>
+            <Text style={[styles.tableHeaderText, styles.colMeta]}>Status</Text>
           </View>
         )}
       </View>
@@ -1064,8 +1088,8 @@ const styles = StyleSheet.create({
   filterTabText:       { fontSize: 12, color: '#666', fontWeight: '600' },
   filterTabTextActive: { color: '#fff' },
 
-  tableHeader:     { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: GREEN_DARK, borderRadius: 10 },
-  tableHeaderText: { flex: 1, fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: 0.5 },
+  tableHeader:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: GREEN_DARK, borderRadius: 10 },
+  tableHeaderText: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: 0.5 },
 
   patientCard: { backgroundColor: '#fff', borderRadius: 12, marginBottom: 6, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
   patientRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12 },
@@ -1075,8 +1099,19 @@ const styles = StyleSheet.create({
   avatarText:  { fontSize: 14, fontWeight: '800', color: GREEN },
   patientName: { fontSize: 14, fontWeight: '700', color: '#222' },
   patientSub:  { fontSize: 11, color: '#888', marginTop: 1 },
-  patientMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 3, justifyContent: 'flex-end' },
-  metaText:    { flex: 1, fontSize: 12, color: '#555', textAlign: 'center' },
+  searchLinkRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  linkBtnCompact: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: GREEN_DARK, borderRadius: 10, paddingHorizontal: 14,
+    minHeight: 44,
+  },
+  linkBtnCompactText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+
+  patientMeta: { flexDirection: 'row', alignItems: 'center', flex: 3 },
+  metaCol:     { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  colPatient:  { flex: 2 },
+  colMeta:     { flex: 1, textAlign: 'center' },
+  metaText:    { fontSize: 12, color: '#555', fontWeight: '700', textAlign: 'center' },
 
   statusBadge:    { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusText:     { fontSize: 11, fontWeight: '700' },

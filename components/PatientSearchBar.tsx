@@ -5,6 +5,7 @@ interface Props {
   value: string;
   onChangeText: (text: string) => void;
   placeholder?: string;
+  style?: object;
 }
 
 /** Stable search input — avoids focus loss from parent re-mounting tab components. */
@@ -12,9 +13,10 @@ export default function PatientSearchBar({
   value,
   onChangeText,
   placeholder = 'Search by name, email, ID, or age…',
+  style,
 }: Props) {
   return (
-    <View style={styles.searchBox}>
+    <View style={[styles.searchBox, style]}>
       <AppIcon name="search" size={18} color="#888" />
       <TextInput
         style={styles.searchInput}

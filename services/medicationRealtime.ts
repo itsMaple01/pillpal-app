@@ -1,6 +1,7 @@
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { getMedications } from '@/api/index';
 import { db } from '@/lib/firebase';
+import { cacheMedications, getCachedMedications } from '@/lib/offline/store';
 import type { PatientMedication } from '@/types/medication';
 
 /** Map DB rows to client medication objects (shared by realtime hook and schedule loader). */
@@ -18,9 +19,11 @@ export function mapMedicationRows(rows: unknown[]): PatientMedication[] {
   }));
 }
 
+let firestoreRealtimeEnabled = true;
+
 /**
- * Loads medications from the API, then keeps them in sync when Firestore
- * `reminders` change for this patient (e.g. another device or the caregiver view).
+ * Loads medications from the API (with offline cache), optionally listens to
+ * Firestore `reminders` when permissions allow.
  */
 export function subscribePatientMedications(
   patientUid: string,
@@ -28,16 +31,26 @@ export function subscribePatientMedications(
 ): () => void {
   let debounce: ReturnType<typeof setTimeout> | undefined;
 
-  const pull = () => {
-    getMedications(patientUid)
-      .then(res => {
-        const rows: unknown[] = Array.isArray(res.data) ? res.data : ((res.data as any)?.data ?? []);
-        onUpdate(mapMedicationRows(rows));
-      })
-      .catch(err => console.error('getMedications failed:', err));
+  const pull = async () => {
+    try {
+      const res = await getMedications(patientUid);
+      const rows: unknown[] = Array.isArray(res.data) ? res.data : ((res.data as any)?.data ?? []);
+      const mapped = mapMedicationRows(rows);
+      await cacheMedications(patientUid, mapped);
+      onUpdate(mapped);
+    } catch {
+      const cached = await getCachedMedications(patientUid);
+      if (cached) onUpdate(cached);
+    }
   };
 
   pull();
+
+  if (!firestoreRealtimeEnabled) {
+    return () => {
+      if (debounce) clearTimeout(debounce);
+    };
+  }
 
   const q = query(collection(db, 'reminders'), where('uid', '==', patientUid));
   const unsub = onSnapshot(
@@ -46,7 +59,12 @@ export function subscribePatientMedications(
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(pull, 280);
     },
-    err => console.error('reminders snapshot error:', err),
+    err => {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code === 'permission-denied' || String(err).includes('permission')) {
+        firestoreRealtimeEnabled = false;
+      }
+    },
   );
 
   return () => {

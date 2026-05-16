@@ -24,6 +24,10 @@ import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
 import AppIcon from '@/components/AppIcon';
 import { bumpPatientActivity } from '@/lib/patientActivity';
+import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
+import { flushOfflineQueue } from '@/lib/offline/sync';
+import { useNetworkStatus } from '@/lib/offline/network';
+import Constants from 'expo-constants';
 import { pickEarliestReminderSlot, parseTimeSlot } from '@/utils/algorithms/greedy';
 import { validateMedicationName } from '@/utils/algorithms/linear';
 
@@ -547,15 +551,25 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     return subscribePatientMedications(uid, setMedications);
   }, [uid]);
 
-  useEffect(() => {
-    rescheduleMedicationLocalNotifications(medications).catch(() => {});
-  }, [medications]);
+  const { isConnected, isInternetReachable } = useNetworkStatus();
+  const online = isConnected && isInternetReachable;
+  const isExpoGo = Constants.appOwnership === 'expo';
 
   useEffect(() => {
+    if (isExpoGo) return;
+    rescheduleMedicationLocalNotifications(medications).catch(() => {});
+  }, [medications, isExpoGo]);
+
+  useEffect(() => {
+    if (isExpoGo) return;
     registerForPushNotificationsAsync().then(token => {
       if (token) saveExpoPushToken(uid, token).catch(() => {});
     });
-  }, [uid]);
+  }, [uid, isExpoGo]);
+
+  useEffect(() => {
+    if (online) flushOfflineQueue().catch(() => {});
+  }, [online]);
 
   useEffect(() => {
     getUser(uid)
@@ -663,32 +677,51 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     if (!med) return;
 
     const newTaken = !med.taken;
+    const nextMeds = medicationsRef.current.map(m => m.id === id ? { ...m, taken: newTaken } : m);
 
-    setMedications(prev =>
-      prev.map(m => m.id === id ? { ...m, taken: newTaken } : m)
-    );
+    setMedications(nextMeds);
+    await cacheMedications(uid, nextMeds);
 
-    try {
+    const syncRemote = async () => {
       await setMedicationTaken(Number(id), newTaken);
-    } catch (err) {
-      setMedications(prev =>
-        prev.map(m => m.id === id ? { ...m, taken: med.taken } : m)
-      );
-      console.error('Toggle API failed:', err);
-      if (Platform.OS === 'web') window.alert('Could not update taken status.');
-      else Alert.alert('Error', 'Could not update taken status.');
+      if (med.firestoreId) {
+        try {
+          await updateDoc(doc(db, 'reminders', med.firestoreId), { taken: newTaken });
+        } catch {
+          /* Firestore optional */
+        }
+      }
+      await bumpPatientActivity(uid, newTaken ? 'medication_taken' : 'medication_update');
+    };
+
+    if (!online) {
+      await enqueueMutation({
+        id: `${id}-${Date.now()}`,
+        type: 'medication_taken',
+        medicationId: Number(id),
+        taken: newTaken,
+        patientUid: uid,
+      });
       return;
     }
 
-    if (med.firestoreId) {
-      try {
-        await updateDoc(doc(db, 'reminders', med.firestoreId), { taken: newTaken });
-      } catch (err) {
-        console.error('Firestore toggle failed:', err);
+    try {
+      await syncRemote();
+    } catch (err) {
+      await enqueueMutation({
+        id: `${id}-${Date.now()}`,
+        type: 'medication_taken',
+        medicationId: Number(id),
+        taken: newTaken,
+        patientUid: uid,
+      });
+      if (Platform.OS === 'web') {
+        window.alert('Saved offline — will sync when you are back online.');
+      } else {
+        Alert.alert('Saved offline', 'Your change will sync when you reconnect.');
       }
     }
-    await bumpPatientActivity(uid, newTaken ? 'medication_taken' : 'medication_update');
-  }, [uid]);
+  }, [uid, online]);
 
   // ── Delete medication ──
   const handleDeleteMed = useCallback((id: string) => {
@@ -944,13 +977,15 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
       <Text style={styles.manageSection}>Account</Text>
 
-      <TouchableOpacity style={styles.manageRow} onPress={() => setShowLinkCaretaker(true)}>
-        <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>🔗</Text></View>
+      <TouchableOpacity style={styles.linkCaregiverCard} onPress={() => setShowLinkCaretaker(true)}>
+        <View style={styles.linkCaregiverIcon}>
+          <AppIcon name="link" size={22} color={GREEN} />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.manageRowLabel}>Link caregiver / family</Text>
           <Text style={styles.manageRowSub}>Share a code or send a link request</Text>
         </View>
-        <Text style={styles.manageArrow}>›</Text>
+        <AppIcon name="chevron-forward" size={20} color="#ccc" />
       </TouchableOpacity>
 
       {patientIncomingReqs.length > 0 && (
@@ -1193,6 +1228,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 12, padding: 14,
     flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
     shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,
+  },
+  linkCaregiverCard: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8,
+    borderWidth: 1.5, borderColor: GREEN,
+    shadowColor: GREEN, shadowOpacity: 0.08, shadowRadius: 8, elevation: 2,
+  },
+  linkCaregiverIcon: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center',
   },
   manageIconBox: {
     width: 40, height: 40, borderRadius: 10,

@@ -1,9 +1,11 @@
 import {
-  Modal, View, Text, TextInput, TouchableOpacity,
+  View, Text, TextInput, TouchableOpacity,
   StyleSheet, Platform, Share, Alert, ActivityIndicator,
 } from 'react-native';
 import { useState } from 'react';
 import { createLinkRequest, generatePatientLinkCode } from '@/api/index';
+import AppIcon from '@/components/AppIcon';
+import CenteredModal from '@/components/CenteredModal';
 
 const GREEN       = '#2d7a3a';
 const GREEN_DARK  = '#1e5c28';
@@ -75,89 +77,93 @@ export default function LinkCaretakerModal({ visible, onClose, uid, email }: Pro
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
-        <View style={s.sheet}>
-          <View style={s.handle} />
-          <View style={s.header}>
-            <Text style={s.headerIcon}>🔗</Text>
-            <Text style={s.title}>Link caregiver / family</Text>
-            <Text style={s.subtitle}>Share a code or send a request to their email.</Text>
-          </View>
-
-          <View style={s.tabRow}>
-            <TouchableOpacity style={[s.tab, mode === 'code' && s.tabOn]} onPress={() => setMode('code')}>
-              <Text style={[s.tabTxt, mode === 'code' && s.tabTxtOn]}>Code</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.tab, mode === 'request' && s.tabOn]} onPress={() => setMode('request')}>
-              <Text style={[s.tabTxt, mode === 'request' && s.tabTxtOn]}>Request</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={s.body}>
-            {mode === 'code' ? (
-              <>
-                <TouchableOpacity style={s.genBtn} onPress={genCode} disabled={loading}>
-                  {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.genTxt}>Generate new code</Text>}
-                </TouchableOpacity>
-                {!!code && (
-                  <View style={s.codeBox}>
-                    <Text style={s.codeLabel}>YOUR CODE</Text>
-                    <Text style={s.codeText}>{code}</Text>
-                    <Text style={s.codeNote}>Give this to your caregiver. Expires in 24 hours.</Text>
-                  </View>
-                )}
-                <TouchableOpacity style={s.shareBtn} onPress={shareCode} disabled={!code}>
-                  <Text style={s.shareTxt}>{Platform.OS === 'web' ? 'Copy message' : 'Share'}</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={s.label}>CAREGIVER EMAIL</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="caregiver@email.com"
-                  placeholderTextColor="#bbb"
-                  value={cgEmail}
-                  onChangeText={setCgEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity style={s.genBtn} onPress={sendRequest} disabled={loading}>
-                  {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.genTxt}>Send link request</Text>}
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-
-          <View style={s.footer}>
-            <TouchableOpacity style={s.closeBtn} onPress={onClose}>
-              <Text style={s.closeText}>Done</Text>
-            </TouchableOpacity>
-          </View>
+    <CenteredModal visible={visible} onClose={onClose}>
+      <View style={s.hero}>
+        <View style={s.iconCircle}>
+          <AppIcon name="people" size={28} color="#fff" />
         </View>
+        <Text style={s.heroKicker}>PillPal</Text>
+        <Text style={s.title}>Link caregiver / family</Text>
+        <Text style={s.subtitle}>Share a code or send a request to their email.</Text>
       </View>
-    </Modal>
+
+      <View style={s.tabRow}>
+        <TouchableOpacity style={[s.tab, mode === 'code' && s.tabOn]} onPress={() => setMode('code')}>
+          <Text style={[s.tabTxt, mode === 'code' && s.tabTxtOn]}>Code</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[s.tab, mode === 'request' && s.tabOn]} onPress={() => setMode('request')}>
+          <Text style={[s.tabTxt, mode === 'request' && s.tabTxtOn]}>Request</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={s.body}>
+        {mode === 'code' ? (
+          <>
+            <TouchableOpacity style={s.genBtn} onPress={genCode} disabled={loading}>
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.genTxt}>Generate new code</Text>}
+            </TouchableOpacity>
+            {!!code && (
+              <View style={s.codeBox}>
+                <Text style={s.codeLabel}>YOUR CODE</Text>
+                <Text style={s.codeText}>{code}</Text>
+                <Text style={s.codeNote}>Give this to your caregiver. Expires in 24 hours.</Text>
+              </View>
+            )}
+            <TouchableOpacity style={s.shareBtn} onPress={shareCode} disabled={!code}>
+              <Text style={s.shareTxt}>{Platform.OS === 'web' ? 'Copy message' : 'Share'}</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <Text style={s.label}>CAREGIVER EMAIL</Text>
+            <TextInput
+              style={s.input}
+              placeholder="caregiver@email.com"
+              placeholderTextColor="#bbb"
+              value={cgEmail}
+              onChangeText={setCgEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <TouchableOpacity style={s.genBtn} onPress={sendRequest} disabled={loading}>
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.genTxt}>Send link request</Text>}
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+
+      <View style={s.footer}>
+        <TouchableOpacity style={s.closeBtn} onPress={onClose}>
+          <Text style={s.closeText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    </CenteredModal>
   );
 }
 
 const s = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  hero: {
+    backgroundColor: GREEN,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: 'center',
   },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#e0e0e0', alignSelf: 'center', marginTop: 12 },
-  header: { alignItems: 'center', paddingTop: 16, paddingHorizontal: 24, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  headerIcon: { fontSize: 34, marginBottom: 6 },
-  title: { fontSize: 19, fontWeight: '800', color: '#1a1a1a', marginBottom: 4 },
-  subtitle: { fontSize: 12, color: '#888', textAlign: 'center', lineHeight: 17 },
-  tabRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 12, gap: 8 },
+  iconCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+  },
+  heroKicker: { fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.85)', letterSpacing: 2 },
+  title: { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 4 },
+  subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.88)', textAlign: 'center', marginTop: 6 },
+
+  tabRow: { flexDirection: 'row', marginHorizontal: 20, marginTop: 16, gap: 8 },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: '#f0f0f0', alignItems: 'center' },
   tabOn: { backgroundColor: GREEN_LIGHT, borderWidth: 1.5, borderColor: GREEN },
   tabTxt: { fontSize: 13, fontWeight: '600', color: '#888' },
   tabTxtOn: { color: GREEN_DARK, fontWeight: '800' },
+
   body: { padding: 20, gap: 12 },
   genBtn: { backgroundColor: GREEN_DARK, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   genTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
@@ -169,7 +175,8 @@ const s = StyleSheet.create({
   shareTxt: { color: '#fff', fontWeight: '800' },
   label: { fontSize: 11, fontWeight: '800', color: '#888', letterSpacing: 1 },
   input: { borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 12, padding: 14, fontSize: 15, backgroundColor: '#fafafa' },
-  footer: { paddingHorizontal: 20, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+
+  footer: { paddingHorizontal: 20, paddingBottom: 20 },
   closeBtn: { paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#f5f5f5', borderWidth: 1.5, borderColor: '#e8e8e8' },
   closeText: { fontSize: 15, fontWeight: '700', color: '#666' },
 });
