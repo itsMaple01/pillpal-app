@@ -22,7 +22,10 @@ import { registerForPushNotificationsAsync, rescheduleMedicationLocalNotificatio
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
-import AppIcon from '@/components/AppIcon';
+import AppIcon, { PATIENT_TAB_ICONS } from '@/components/AppIcon';
+import AppHeader from '@/components/AppHeader';
+import MenuRow from '@/components/MenuRow';
+import StatTile from '@/components/StatTile';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
@@ -57,11 +60,11 @@ const HOURS   = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '
 const MINUTES = ['00','05','10','15','20','25','30','35','40','45','50','55'];
 
 type PatientTab = 'Home' | 'Calendar' | 'Medications' | 'Manage';
-const TABS: { icon: string; label: PatientTab }[] = [
-  { icon: '🏠', label: 'Home' },
-  { icon: '📅', label: 'Calendar' },
-  { icon: '💊', label: 'Medications' },
-  { icon: '⚙️', label: 'Manage' },
+const TABS: { label: PatientTab }[] = [
+  { label: 'Home' },
+  { label: 'Calendar' },
+  { label: 'Medications' },
+  { label: 'Manage' },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -788,7 +791,9 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const HomeScreen = () => (
     <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
       <View style={styles.greetingCard}>
-        <Text style={styles.greetingIcon}>☀️</Text>
+        <View style={styles.greetingIconWrap}>
+          <AppIcon name="sunny-outline" size={28} color={GREEN} />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.greetingText}>Good day, {displayName}!</Text>
           <Text style={styles.greetingSub}>Stay on track with your medication today.</Text>
@@ -796,16 +801,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       </View>
 
       <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statIcon}>💊</Text>
-          <Text style={styles.statNum}>{medications.length}</Text>
-          <Text style={styles.statLabel}>Today's Meds</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statIcon}>✅</Text>
-          <Text style={styles.statNum}>{takenToday}</Text>
-          <Text style={styles.statLabel}>Taken Today</Text>
-        </View>
+        <StatTile icon="medical-outline" value={medications.length} label="Today's meds" accent={GREEN} />
+        <StatTile icon="checkmark-circle-outline" value={takenToday} label="Taken today" accent={GREEN} iconBg="#f1f8e9" />
       </View>
 
       <MedicationsCard
@@ -815,31 +812,13 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         onAddPress={() => { setEditingMed(null); setActiveTab('Medications'); setShowAddModal(true); }}
       />
 
-      <TouchableOpacity
-        style={[styles.actionCard, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: GREEN_LIGHT }]}
+      <MenuRow
+        icon="medical-outline"
+        label="All medications"
+        sub={`${medications.length} active · ${takenToday} taken today`}
         onPress={() => setActiveTab('Medications')}
-      >
-        <Text style={styles.actionIcon}>💊</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.actionTitle, { color: '#222' }]}>All Medications</Text>
-          <Text style={[styles.actionSub, { color: '#888' }]}>
-            {medications.length} active · {takenToday} taken today
-          </Text>
-        </View>
-        <Text style={[styles.arrow, { color: GREEN }]}>→</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.actionCard, styles.actionCardWhite]}
-        onPress={() => setActiveTab('Calendar')}
-      >
-        <Text style={styles.actionIcon}>📅</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.actionTitle, { color: '#222' }]}>Calendar</Text>
-          <Text style={[styles.actionSub, { color: '#888' }]}>View your schedule</Text>
-        </View>
-        <Text style={[styles.arrow, { color: '#222' }]}>→</Text>
-      </TouchableOpacity>
+      />
+      <MenuRow icon="calendar-outline" label="Calendar" sub="View your schedule" onPress={() => setActiveTab('Calendar')} />
     </ScrollView>
   );
 
@@ -949,31 +928,15 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
       <Text style={styles.manageSection}>Essentials</Text>
 
-      <TouchableOpacity style={styles.manageRow} onPress={() => setActiveTab('Medications')}>
-        <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>💊</Text></View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.manageRowLabel}>Medications</Text>
-          <Text style={styles.manageRowSub}>{medications.length} active · {takenToday} taken today</Text>
-        </View>
-        <View style={styles.medCountBadge}>
-          <Text style={styles.medCountBadgeText}>{medications.length}</Text>
-        </View>
-        <Text style={styles.manageArrow}>›</Text>
-      </TouchableOpacity>
-
-      {[
-        { icon: '📊', label: 'Report',              sub: `${takenToday} taken today`,    onPress: undefined },
-        { icon: '📅', label: 'Schedule & Calendar', sub: 'View all reminders',           onPress: () => setActiveTab('Calendar') },
-      ].map((item, i) => (
-        <TouchableOpacity key={i} style={styles.manageRow} onPress={item.onPress}>
-          <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.manageRowLabel}>{item.label}</Text>
-            <Text style={styles.manageRowSub}>{item.sub}</Text>
-          </View>
-          <Text style={styles.manageArrow}>›</Text>
-        </TouchableOpacity>
-      ))}
+      <MenuRow
+        icon="medical-outline"
+        label="Medications"
+        sub={`${medications.length} active · ${takenToday} taken today`}
+        badge={medications.length}
+        onPress={() => setActiveTab('Medications')}
+      />
+      <MenuRow icon="bar-chart-outline" label="Report" sub={`${takenToday} taken today`} showChevron={false} />
+      <MenuRow icon="calendar-outline" label="Schedule & calendar" sub="View all reminders" onPress={() => setActiveTab('Calendar')} />
 
       <Text style={styles.manageSection}>Account</Text>
 
@@ -1028,22 +991,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         </View>
       )}
 
-      {[
-        { icon: '🔔', label: 'Notification Settings', sub: 'Manage alerts' },
-        { icon: '🔒', label: 'Privacy & Security',    sub: 'Manage your data' },
-      ].map((item, i) => (
-        <TouchableOpacity key={i} style={styles.manageRow}>
-          <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.manageRowLabel}>{item.label}</Text>
-            <Text style={styles.manageRowSub}>{item.sub}</Text>
-          </View>
-          <Text style={styles.manageArrow}>›</Text>
-        </TouchableOpacity>
-      ))}
+      <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alerts" />
+      <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
+      <MenuRow icon="help-circle-outline" label="Help & support" sub="Get help" />
 
       <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
-        <Text style={styles.logoutRowIcon}>🚪</Text>
+        <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
 
@@ -1076,14 +1029,23 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     <View style={styles.outer}>
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
 
-      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
-        <Text style={[styles.headerTitle, isTablet && styles.headerTitleTablet]}>
-          💊 Medicine Reminder
-        </Text>
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-          <Text style={styles.logoutText}>Log out</Text>
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title={activeTab === 'Home' ? 'Your health' : activeTab}
+        subtitle={
+          activeTab === 'Medications'
+            ? `${medications.length} active reminders`
+            : activeTab === 'Home'
+              ? `Hi ${displayName.split(/\s+/)[0]}`
+              : undefined
+        }
+        onLogout={onLogout}
+        paddingTop={insets.top + 14}
+        rightAction={
+          activeTab === 'Medications'
+            ? { label: '+ Add', onPress: () => { setEditingMed(null); setShowAddModal(true); } }
+            : undefined
+        }
+      />
 
       {renderScreen()}
 
@@ -1094,8 +1056,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
             style={styles.tabItem}
             onPress={() => setActiveTab(tab.label)}
           >
-            <Text style={styles.tabIcon}>{tab.icon}</Text>
-            <Text style={[styles.tabLabel, activeTab === tab.label && { color: GREEN, fontWeight: '700' }]}>
+            <AppIcon
+              name={PATIENT_TAB_ICONS[tab.label]}
+              size={22}
+              color={activeTab === tab.label ? GREEN : '#aaa'}
+            />
+            <Text style={[styles.tabLabel, activeTab === tab.label && styles.tabLabelActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -1151,8 +1117,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderLeftWidth: 4, borderLeftColor: GREEN,
+    borderWidth: 1, borderColor: '#eef2ee',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
-  greetingIcon: { fontSize: 32 },
+  greetingIconWrap: {
+    width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
+    alignItems: 'center', justifyContent: 'center',
+  },
   greetingText: { fontSize: 16, fontWeight: '700', color: '#222' },
   greetingSub:  { fontSize: 13, color: '#666', marginTop: 2 },
 
@@ -1273,7 +1244,8 @@ const styles = StyleSheet.create({
   },
   tabItem:  { flex: 1, alignItems: 'center' },
   tabIcon:  { fontSize: 22 },
-  tabLabel: { fontSize: 11, color: '#aaa', marginTop: 2 },
+  tabLabel:       { fontSize: 11, color: '#aaa', marginTop: 2 },
+  tabLabelActive: { color: GREEN, fontWeight: '700' },
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -21,6 +21,8 @@ import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkPatientModal from '@/components/Linkpatientmodal';
 import PatientSearchBar from '@/components/PatientSearchBar';
 import AppIcon, { TAB_ICONS } from '@/components/AppIcon';
+import MenuRow from '@/components/MenuRow';
+import StatTile from '@/components/StatTile';
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -224,38 +226,28 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       </View>
 
       <View style={styles.homeStatsGrid}>
-        {[
-          { icon: '👥', num: stats.total,     label: 'Total Patients',  color: GREEN      },
-          { icon: '✅', num: stats.active,    label: 'Active',          color: '#2d7a3a'  },
-          { icon: '⚠️', num: stats.missed,    label: 'Missed Doses',    color: '#e65100'  },
-          { icon: '🚨', num: stats.attention, label: 'Needs Attention', color: '#c62828'  },
-        ].map((s, i) => (
-          <View key={i} style={[styles.homeStatCard, { borderTopColor: s.color }]}>
-            <Text style={styles.homeStatIcon}>{s.icon}</Text>
-            <Text style={[styles.homeStatNum, { color: s.color }]}>{s.num}</Text>
-            <Text style={styles.homeStatLabel}>{s.label}</Text>
-          </View>
-        ))}
+        <View style={styles.statsRow}>
+          <StatTile icon="people-outline" value={stats.total} label="Total Patients" accent={GREEN} />
+          <StatTile icon="checkmark-circle-outline" value={stats.active} label="Active" accent={GREEN} />
+          <StatTile icon="alert-circle-outline" value={stats.missed} label="Missed Doses" accent="#e65100" iconBg="#fff3e0" />
+          <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
+        </View>
       </View>
 
-      <TouchableOpacity style={styles.homeQuickBtn} onPress={() => setActiveTab('Patients')}>
-        <Text style={styles.homeQuickBtnText}>👥 View All Patients →</Text>
-      </TouchableOpacity>
-
-      {/* Medications quick-link */}
-      <TouchableOpacity
-        style={[styles.homeQuickBtn, styles.homeQuickBtnOutline]}
+      <MenuRow icon="people-outline" label="View all patients" sub="Open your patient list" onPress={() => setActiveTab('Patients')} />
+      <MenuRow
+        icon="medical-outline"
+        label="Patient medications"
+        sub="Browse meds by patient"
         onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
-      >
-        <Text style={[styles.homeQuickBtnText, { color: GREEN }]}>💊 View Patient Medications →</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={[styles.homeQuickBtn, styles.homeQuickBtnOutline]} onPress={() => setActiveTab('Alerts')}>
-        <Text style={[styles.homeQuickBtnText, { color: GREEN }]}>🔔 Check Alerts →</Text>
-      </TouchableOpacity>
+      />
+      <MenuRow icon="notifications-outline" label="Check alerts" sub="See who needs follow-up" onPress={() => setActiveTab('Alerts')} />
 
       <View style={styles.homeTipCard}>
-        <Text style={styles.homeTipTitle}>💡 Tip</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <AppIcon name="bulb-outline" size={18} color="#f57f17" />
+          <Text style={styles.homeTipTitle}>Tip</Text>
+        </View>
         <Text style={styles.homeTipText}>
           Patients with 5+ missed doses are flagged as "Needs Attention". Reach out to them with a reminder.
         </Text>
@@ -367,18 +359,10 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     <View style={styles.mainContent}>
       <View style={{ padding: 16, gap: 10 }}>
         <View style={styles.statsRow}>
-          {[
-            { icon: '👥', num: stats.total,     label: 'Total Patients'  },
-            { icon: '✅', num: stats.active,    label: 'Active'          },
-            { icon: '⚠️', num: stats.missed,    label: 'Missed Doses'    },
-            { icon: '🚨', num: stats.attention, label: 'Needs Attention' },
-          ].map((s, i) => (
-            <View key={i} style={styles.statCard}>
-              <Text style={styles.statIcon}>{s.icon}</Text>
-              <Text style={styles.statNum}>{s.num}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
-            </View>
-          ))}
+          <StatTile icon="people-outline" value={stats.total} label="Total Patients" accent={GREEN} />
+          <StatTile icon="checkmark-circle-outline" value={stats.active} label="Active" accent={GREEN} />
+          <StatTile icon="alert-circle-outline" value={stats.missed} label="Missed Doses" accent="#e65100" iconBg="#fff3e0" />
+          <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
         </View>
 
         <View style={styles.searchLinkRow}>
@@ -656,11 +640,16 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     );
     return (
       <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
-        <Text style={styles.screenTitle}>🔔 Alerts</Text>
+        <View style={styles.sectionTitleRow}>
+          <AppIcon name="notifications-outline" size={22} color={GREEN} />
+          <Text style={styles.screenTitle}>Alerts</Text>
+        </View>
 
         {alertPatients.length === 0 ? (
           <View style={styles.alertAllClear}>
-            <Text style={styles.alertAllClearIcon}>✅</Text>
+            <View style={styles.alertClearIconWrap}>
+              <AppIcon name="checkmark-circle" size={48} color={GREEN} />
+            </View>
             <Text style={styles.alertAllClearTitle}>All Clear!</Text>
             <Text style={styles.alertAllClearSub}>No patients need attention right now.</Text>
           </View>
@@ -670,7 +659,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
             const isUrgent = status === 'Needs Attention';
             return (
               <View key={p.firebase_uid} style={[styles.alertCard, { borderLeftColor: isUrgent ? '#c62828' : '#e65100' }]}>
-                <Text style={styles.alertIcon}>{isUrgent ? '🚨' : '⚠️'}</Text>
+                <View style={[styles.alertIconWrap, { backgroundColor: isUrgent ? '#fce4ec' : '#fff3e0' }]}>
+                  <AppIcon name={isUrgent ? 'warning' : 'alert-circle'} size={24} color={isUrgent ? '#c62828' : '#e65100'} />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.alertPatientName}>{p.full_name ?? p.email}</Text>
                   <Text style={styles.alertMessage}>
@@ -690,9 +681,18 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         )}
 
         <View style={styles.alertInfoCard}>
-          <Text style={styles.alertInfoTitle}>ℹ️ Alert Thresholds</Text>
-          <Text style={styles.alertInfoText}>⚠️ Missed Doses — 1 to 4 missed doses</Text>
-          <Text style={styles.alertInfoText}>🚨 Needs Attention — 5+ missed doses</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <AppIcon name="information-circle" size={20} color="#1565c0" />
+            <Text style={styles.alertInfoTitle}>Alert thresholds</Text>
+          </View>
+          <View style={styles.alertInfoRow}>
+            <AppIcon name="alert-circle-outline" size={16} color="#e65100" />
+            <Text style={styles.alertInfoText}>Missed doses — 1 to 4 missed doses</Text>
+          </View>
+          <View style={styles.alertInfoRow}>
+            <AppIcon name="warning-outline" size={16} color="#c62828" />
+            <Text style={styles.alertInfoText}>Needs attention — 5+ missed doses</Text>
+          </View>
         </View>
       </ScrollView>
     );
@@ -712,45 +712,23 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       </View>
 
       <Text style={styles.manageSection}>Overview</Text>
-      {[
-        { icon: '👥', label: 'Linked Patients',  sub: `${patients.length} patient${patients.length !== 1 ? 's' : ''}` },
-        { icon: '🚨', label: 'Needs Attention',  sub: `${stats.attention} patient${stats.attention !== 1 ? 's' : ''}` },
-        { icon: '✅', label: 'Active Patients',  sub: `${stats.active} patient${stats.active !== 1 ? 's' : ''}` },
-        { icon: '💊', label: 'Medications',      sub: 'View all patient medications',
-          onPress: () => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); } },
-      ].map((item, i) => (
-        <TouchableOpacity
-          key={i}
-          style={styles.manageRow}
-          onPress={() => (item as { onPress?: () => void }).onPress?.()}
-        >
-          <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.manageRowLabel}>{item.label}</Text>
-            <Text style={styles.manageRowSub}>{item.sub}</Text>
-          </View>
-          {(item as { onPress?: () => void }).onPress ? <Text style={styles.manageArrow}>›</Text> : null}
-        </TouchableOpacity>
-      ))}
+      <MenuRow icon="people-outline" label="Linked patients" sub={`${patients.length} patient${patients.length !== 1 ? 's' : ''}`} showChevron={false} />
+      <MenuRow icon="warning-outline" iconColor="#c62828" iconBg="#fce4ec" label="Needs attention" sub={`${stats.attention} patient${stats.attention !== 1 ? 's' : ''}`} showChevron={false} />
+      <MenuRow icon="checkmark-circle-outline" label="Active patients" sub={`${stats.active} patient${stats.active !== 1 ? 's' : ''}`} showChevron={false} />
+      <MenuRow
+        icon="medical-outline"
+        label="Medications"
+        sub="View all patient medications"
+        onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
+      />
 
       <Text style={styles.manageSection}>Settings</Text>
-      {[
-        { icon: '🔔', label: 'Notification Settings', sub: 'Manage alert preferences' },
-        { icon: '🔒', label: 'Privacy & Security',    sub: 'Manage your data' },
-        { icon: '❓', label: 'Help & Support',         sub: 'Get assistance' },
-      ].map((item, i) => (
-        <TouchableOpacity key={i} style={styles.manageRow}>
-          <View style={styles.manageIconBox}><Text style={{ fontSize: 20 }}>{item.icon}</Text></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.manageRowLabel}>{item.label}</Text>
-            <Text style={styles.manageRowSub}>{item.sub}</Text>
-          </View>
-          <Text style={styles.manageArrow}>›</Text>
-        </TouchableOpacity>
-      ))}
+      <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alert preferences" />
+      <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
+      <MenuRow icon="help-circle-outline" label="Help & support" sub="Get assistance" />
 
       <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
-        <Text style={styles.logoutRowIcon}>🚪</Text>
+        <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
       <Text style={styles.versionText}>PillPal v1.0.0</Text>
@@ -858,9 +836,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
   if (isTablet) {
     return (
       <>
-        <View style={[styles.outer, { flexDirection: 'row' }]}>
-        <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
-        <View style={[styles.sidebar, { paddingTop: insets.top + 16 }]}>
+        <View style={[styles.tabletShell, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8 }]}>
+        <StatusBar barStyle="dark-content" backgroundColor="#dce3dc" translucent={false} />
+        <View style={styles.sidebarPanel}>
           <View style={styles.sidebarLogo}>
             <AppIcon name="medical" size={26} color="#fff" />
             <Text style={styles.sidebarLogoText}>PillPal</Text>
@@ -885,8 +863,8 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           </View>
         </View>
 
-        <View style={{ flex: 1, backgroundColor: '#f0f4f0' }}>
-          <View style={[styles.tabletHeader, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.contentPanel}>
+          <View style={styles.tabletHeader}>
             <View>
               <Text style={styles.tabletHeaderTitle}>{screenTitles[activeTab]}</Text>
               <Text style={styles.tabletHeaderSub}>{screenSubs[activeTab]}</Text>
@@ -1004,6 +982,42 @@ const ct = StyleSheet.create({
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: '#f0f4f0' },
+
+  tabletShell: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#dce3dc',
+    paddingHorizontal: 10,
+    gap: 10,
+  },
+  sidebarPanel: {
+    width: 228,
+    backgroundColor: GREEN_DARK,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.14)',
+    paddingHorizontal: 12,
+    paddingTop: 16,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  contentPanel: {
+    flex: 1,
+    backgroundColor: '#f4f7f4',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+
   sidebar: {
     width: 200, backgroundColor: GREEN_DARK,
     paddingHorizontal: 16, paddingBottom: 24,
@@ -1019,10 +1033,16 @@ const styles = StyleSheet.create({
   sidebarLabelActive:  { color: '#fff' },
 
   tabletHeader: {
-    backgroundColor: GREEN, flexDirection: 'row',
-    justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 24, paddingVertical: 12,
+    backgroundColor: GREEN,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
   },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   tabletHeaderTitle: { color: '#fff', fontSize: 18, fontWeight: '800' },
   tabletHeaderSub:   { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 2 },
 
@@ -1163,7 +1183,11 @@ const styles = StyleSheet.create({
 
   // Alerts
   alertAllClear:      { alignItems: 'center', paddingVertical: 48, backgroundColor: '#fff', borderRadius: 16 },
-  alertAllClearIcon:  { fontSize: 48, marginBottom: 12 },
+  alertClearIconWrap: {
+    width: 72, height: 72, borderRadius: 36, backgroundColor: GREEN_LIGHT,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+  },
+  alertIconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   alertAllClearTitle: { fontSize: 20, fontWeight: '800', color: '#222', marginBottom: 4 },
   alertAllClearSub:   { fontSize: 14, color: '#888' },
   alertCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderLeftWidth: 4, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
@@ -1173,8 +1197,9 @@ const styles = StyleSheet.create({
   alertActionBtn:    { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   alertActionText:   { fontSize: 12, fontWeight: '700' },
   alertInfoCard:     { backgroundColor: '#e3f2fd', borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: '#1976d2' },
-  alertInfoTitle:    { fontSize: 14, fontWeight: '800', color: '#1565c0', marginBottom: 8 },
-  alertInfoText:     { fontSize: 13, color: '#1565c0', marginBottom: 4 },
+  alertInfoTitle: { fontSize: 14, fontWeight: '800', color: '#1565c0' },
+  alertInfoRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+  alertInfoText:  { fontSize: 13, color: '#1565c0', flex: 1 },
 
   // Manage (account)
   profileHeader:     { alignItems: 'center', paddingVertical: 24 },
