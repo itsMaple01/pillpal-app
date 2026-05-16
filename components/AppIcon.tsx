@@ -22,3 +22,10 @@ export const TAB_ICONS = {
   Alerts: 'notifications-outline' as IonName,
   Manage: 'settings-outline' as IonName,
 };
+
+export const PATIENT_TAB_ICONS: Record<string, IonName> = {
+  Home: 'home-outline',
+  Calendar: 'calendar-outline',
+  Medications: 'medical-outline',
+  Manage: 'settings-outline',
+};
