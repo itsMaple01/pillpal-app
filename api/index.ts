@@ -1,10 +1,9 @@
 import axios from 'axios';
-
-const API_BASE = 'http://192.168.1.52:3001'; 
+import { getApiBaseUrl } from '@/lib/apiConfig';
 
 export const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 10000,
+  baseURL: getApiBaseUrl(),
+  timeout: 25000,
 });
 
 // Users

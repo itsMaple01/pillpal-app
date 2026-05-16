@@ -7,6 +7,8 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "primaryColor": "#2d7a3a",
+    "backgroundColor": "#2d7a3a",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,25 +16,32 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pillpal.app"
+      "bundleIdentifier": "com.pillpal.app",
+      "splash": {
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#2d7a3a"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2d7a3a"
       },
-      "package": "com.pillpal.app"
+      "package": "com.pillpal.app",
+      "splash": {
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#2d7a3a"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      [
-        "expo-notifications",
-        {
-          "color": "#2d7a3a"
-        }
-      ]
-    ]
+    "extra": {
+      "eas": {
+        "projectId": "pillpal-app"
+      }
+    }
   }
 }
