@@ -29,7 +29,7 @@ export function subscribeCaretakerOverview(
       onSnapshot(
         doc(db, 'patient_activity', patientUid),
         () => notifyOverview(),
-        err => console.warn('patient_activity snapshot:', err),
+        () => { /* Firestore optional — API polling / cache still works */ },
       ),
     );
 
