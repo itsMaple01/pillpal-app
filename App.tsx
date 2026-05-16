@@ -11,6 +11,7 @@ import PatientDashboard from './screens/patient-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
 import LogoutModal from './components/LogoutModal';
 import OfflineBanner from './components/OfflineBanner';
+import { setupNotifications } from './lib/pushNotifications';
 
 type SignupProfile = { full_name: string; age: number; health_condition: string | null };
 
@@ -23,6 +24,10 @@ export default function App() {
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [signupProfile, setSignupProfile] = useState<SignupProfile | null>(null);
+
+  useEffect(() => {
+    setupNotifications().catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {

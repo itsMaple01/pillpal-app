@@ -25,6 +25,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Switch,
 } from 'react-native';
+import AppIcon from '@/components/AppIcon';
 
 const GREEN       = '#2d7a3a';
 const GREEN_LIGHT = '#e8f5e9';
@@ -108,7 +109,9 @@ export default function MedicationsScreen({
       {/* ── Empty state ── */}
       {medications.length === 0 ? (
         <View style={s.emptyWrap}>
-          <Text style={s.emptyIcon}>💊</Text>
+          <View style={s.emptyIconWrap}>
+            <AppIcon name="medical-outline" size={40} color={GREEN} />
+          </View>
           <Text style={s.emptyTitle}>No medications yet</Text>
           <Text style={s.emptySub}>
             {readOnly
@@ -145,13 +148,16 @@ export default function MedicationsScreen({
 
                 <View style={s.metaRow}>
                   <View style={s.metaChip}>
-                    <Text style={s.metaChipText}>💊 {med.dosage}</Text>
+                    <AppIcon name="fitness-outline" size={12} color="#666" />
+                    <Text style={s.metaChipText}>{med.dosage}</Text>
                   </View>
                   <View style={s.metaChip}>
-                    <Text style={s.metaChipText}>🔄 {med.frequency}</Text>
+                    <AppIcon name="repeat-outline" size={12} color="#666" />
+                    <Text style={s.metaChipText}>{med.frequency}</Text>
                   </View>
                   <View style={s.metaChip}>
-                    <Text style={s.metaChipText}>⏰ {med.time}</Text>
+                    <AppIcon name="time-outline" size={12} color="#666" />
+                    <Text style={s.metaChipText}>{med.time}</Text>
                   </View>
                 </View>
 
@@ -174,7 +180,7 @@ export default function MedicationsScreen({
                     )}
                     {onToggleNotify && (
                       <TouchableOpacity style={s.smallBtn} onPress={() => onToggleNotify(med)}>
-                        <Text style={s.smallBtnTxt}>{med.notify_enabled === false ? '🔕 Off' : '🔔 On'}</Text>
+                        <Text style={s.smallBtnTxt}>{med.notify_enabled === false ? 'Notify off' : 'Notify on'}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -196,7 +202,7 @@ export default function MedicationsScreen({
                     style={s.deleteBtn}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={s.deleteTxt}>🗑</Text>
+                    <AppIcon name="trash-outline" size={20} color="#c62828" />
                   </TouchableOpacity>
                 </View>
               )}
@@ -239,7 +245,7 @@ const s = StyleSheet.create({
     alignItems: 'center', paddingVertical: 48,
     backgroundColor: '#fff', borderRadius: 18, gap: 8,
   },
-  emptyIcon:      { fontSize: 48 },
+  emptyIconWrap:  { width: 72, height: 72, borderRadius: 36, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
   emptyTitle:     { fontSize: 17, fontWeight: '800', color: '#333' },
   emptySub:       { fontSize: 13, color: '#aaa', textAlign: 'center', paddingHorizontal: 24 },
   emptyActionBtn: {
@@ -269,8 +275,9 @@ const s = StyleSheet.create({
 
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   metaChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: '#f5f5f5', borderRadius: 8,
-    paddingHorizontal: 8, paddingVertical: 4,
+    paddingHorizontal: 8, paddingVertical: 5,
   },
   metaChipText: { fontSize: 11, color: '#666', fontWeight: '600' },
 

@@ -128,3 +128,9 @@ export const linkPatient = (data: {
 
 export const getUserByEmail = (email: string) =>
   api.get(`/api/users/by-email/${encodeURIComponent(email)}`);
+
+export const sendPatientReminder = (body: {
+  caretaker_uid: string;
+  patient_uid: string;
+  message?: string;
+}) => api.post('/api/reminders/send', body);

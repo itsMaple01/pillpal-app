@@ -16,6 +16,7 @@ app.use('/api/doses', require('./routes/doses'));
 app.use('/api/patients', require('./routes/patients'));
 app.use('/api/linking', require('./routes/linking'));
 app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/reminders', require('./routes/reminders'));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
