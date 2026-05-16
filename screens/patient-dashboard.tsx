@@ -18,7 +18,12 @@ import {
   getPatientIncomingLinkRequests, acceptLinkRequestAsPatient, rejectLinkRequest,
 } from '@/api/index';
 import { subscribePatientMedications } from '@/services/medicationRealtime';
-import { registerForPushNotificationsAsync, rescheduleMedicationLocalNotifications } from '@/lib/pushNotifications';
+import {
+  registerForPushNotificationsAsync,
+  rescheduleMedicationLocalNotifications,
+  setupNotifications,
+  presentLocalNotification,
+} from '@/lib/pushNotifications';
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
@@ -465,7 +470,9 @@ function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: M
     <View style={mc.card}>
       <View style={mc.header}>
         <View style={mc.headerLeft}>
-          <Text style={mc.headerIcon}>💊</Text>
+          <View style={mc.headerIconWrap}>
+            <AppIcon name="medical" size={22} color={GREEN} />
+          </View>
           <View>
             <Text style={mc.headerTitle}>Medications</Text>
             <Text style={mc.headerSub}>CURRENTLY TAKING</Text>
@@ -490,7 +497,7 @@ function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: M
 
       {medications.length === 0 ? (
         <View style={mc.empty}>
-          <Text style={mc.emptyIcon}>📭</Text>
+          <AppIcon name="medical-outline" size={36} color="#ccc" />
           <Text style={mc.emptyText}>No medications added yet</Text>
           <TouchableOpacity style={mc.emptyAddBtn} onPress={onAddPress}>
             <Text style={mc.emptyAddText}>+ Add Medication</Text>
@@ -564,10 +571,20 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   }, [medications, isExpoGo]);
 
   useEffect(() => {
+    setupNotifications().catch(() => {});
     if (isExpoGo) return;
     registerForPushNotificationsAsync().then(token => {
       if (token) saveExpoPushToken(uid, token).catch(() => {});
     });
+    let sub: { remove: () => void } | undefined;
+    import('expo-notifications').then(Notifications => {
+      sub = Notifications.addNotificationReceivedListener(n => {
+        const title = n.request.content.title ?? 'PillPal';
+        const body = n.request.content.body ?? '';
+        if (body) presentLocalNotification(title, body);
+      });
+    }).catch(() => {});
+    return () => sub?.remove();
   }, [uid, isExpoGo]);
 
   useEffect(() => {
@@ -1038,7 +1055,6 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
               ? `Hi ${displayName.split(/\s+/)[0]}`
               : undefined
         }
-        onLogout={onLogout}
         paddingTop={insets.top + 14}
         rightAction={
           activeTab === 'Medications'
@@ -1439,7 +1455,10 @@ const mc = StyleSheet.create({
     padding: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f5f5f5',
   },
   headerLeft:  { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  headerIcon:  { fontSize: 24 },
+  headerIconWrap: {
+    width: 40, height: 40, borderRadius: 12, backgroundColor: GREEN_LIGHT,
+    alignItems: 'center', justifyContent: 'center', marginRight: 4,
+  },
   headerTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
   headerSub:   { fontSize: 10, fontWeight: '700', color: '#aaa', letterSpacing: 0.8, marginTop: 1 },
   countBadge:  { backgroundColor: GREEN_LIGHT, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },

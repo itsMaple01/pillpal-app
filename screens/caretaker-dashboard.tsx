@@ -8,7 +8,9 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
+  sendPatientReminder, saveExpoPushToken,
 } from '@/api/index';
+import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { cachePatients, getCachedPatients } from '@/lib/offline/store';
@@ -146,6 +148,29 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     getUser(uid)
       .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
       .catch(() => {});
+    registerForPushNotificationsAsync().then(token => {
+      if (token) saveExpoPushToken(uid, token).catch(() => {});
+    });
+  }, [uid]);
+
+  const handleSendReminder = useCallback(async (patient: Patient) => {
+    try {
+      const res = await sendPatientReminder({
+        caretaker_uid: uid,
+        patient_uid: patient.firebase_uid,
+        message: `Reminder from your caregiver: please take your medication.`,
+      });
+      const pushSent = res.data?.push_sent;
+      const pushErr = res.data?.push_error;
+      const msg = pushSent
+        ? `Reminder sent to ${patient.full_name ?? patient.email}. They should get a notification with sound.`
+        : `Reminder saved. ${pushErr || 'Patient must open the installed PillPal app once to enable push notifications.'}`;
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert(pushSent ? 'Reminder sent' : 'Reminder recorded', msg);
+    } catch {
+      if (Platform.OS === 'web') window.alert('Could not send reminder. Check your connection.');
+      else Alert.alert('Error', 'Could not send reminder. Check your connection.');
+    }
   }, [uid]);
 
   useEffect(() => { fetchPatients(false); }, [fetchPatients]);
@@ -219,19 +244,22 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
   const renderHomeTab = () => (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 32 }}>
       <View style={styles.homeGreeting}>
-        <Text style={styles.homeGreetingTitle}>
-          👋 Welcome back{caregiverName ? `, ${caregiverName.split(/\s+/)[0]}` : ''}!
-        </Text>
-        <Text style={styles.homeGreetingSub}>Here's a quick overview of your patients.</Text>
+        <View style={styles.homeGreetingIcon}>
+          <AppIcon name="hand-left-outline" size={26} color={GREEN} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.homeGreetingTitle}>
+            Welcome back{caregiverName ? `, ${caregiverName.split(/\s+/)[0]}` : ''}!
+          </Text>
+          <Text style={styles.homeGreetingSub}>Here's a quick overview of your patients.</Text>
+        </View>
       </View>
 
-      <View style={styles.homeStatsGrid}>
-        <View style={styles.statsRow}>
-          <StatTile icon="people-outline" value={stats.total} label="Total Patients" accent={GREEN} />
-          <StatTile icon="checkmark-circle-outline" value={stats.active} label="Active" accent={GREEN} />
-          <StatTile icon="alert-circle-outline" value={stats.missed} label="Missed Doses" accent="#e65100" iconBg="#fff3e0" />
-          <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
-        </View>
+      <View style={styles.statsRow}>
+        <StatTile icon="people-outline" value={stats.total} label="Total Patients" accent={GREEN} />
+        <StatTile icon="checkmark-circle-outline" value={stats.active} label="Active" accent={GREEN} />
+        <StatTile icon="alert-circle-outline" value={stats.missed} label="Missed Doses" accent="#e65100" iconBg="#fff3e0" />
+        <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
       </View>
 
       <MenuRow icon="people-outline" label="View all patients" sub="Open your patient list" onPress={() => setActiveTab('Patients')} />
@@ -346,8 +374,11 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
             >
               <Text style={styles.actionBtnOutlineText}>✏️ Edit patient info</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtnOutline, { marginTop: 8 }]}>
-              <Text style={styles.actionBtnOutlineText}>✉️ Send Reminder</Text>
+            <TouchableOpacity
+              style={[styles.actionBtnOutline, { marginTop: 8 }]}
+              onPress={() => handleSendReminder(patient)}
+            >
+              <Text style={styles.actionBtnOutlineText}>Send reminder</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -670,7 +701,10 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                       : `${p.missed_doses} missed dose${p.missed_doses !== 1 ? 's' : ''} this period`}
                   </Text>
                 </View>
-                <TouchableOpacity style={[styles.alertActionBtn, { backgroundColor: isUrgent ? '#fce4ec' : '#fff3e0' }]}>
+                <TouchableOpacity
+                  style={[styles.alertActionBtn, { backgroundColor: isUrgent ? '#fce4ec' : '#fff3e0' }]}
+                  onPress={() => handleSendReminder(p)}
+                >
                   <Text style={[styles.alertActionText, { color: isUrgent ? '#c62828' : '#e65100' }]}>
                     Remind
                   </Text>
@@ -864,14 +898,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         </View>
 
         <View style={styles.contentPanel}>
-          <View style={styles.tabletHeader}>
-            <View>
-              <Text style={styles.tabletHeaderTitle}>{screenTitles[activeTab]}</Text>
-              <Text style={styles.tabletHeaderSub}>{screenSubs[activeTab]}</Text>
-            </View>
-            <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-              <Text style={styles.logoutText}>Log out</Text>
-            </TouchableOpacity>
+          <View style={styles.contentTitleBar}>
+            <Text style={styles.contentTitle}>{screenTitles[activeTab]}</Text>
+            <Text style={styles.contentSub}>{screenSubs[activeTab]}</Text>
           </View>
           {renderScreen()}
         </View>
@@ -892,11 +921,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     <>
     <View style={styles.outer}>
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
-      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
-        <Text style={styles.headerTitle}>{screenTitles[activeTab]}</Text>
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-          <Text style={styles.logoutText}>Log out</Text>
-        </TouchableOpacity>
+      <View style={[styles.contentTitleBar, { paddingTop: insets.top + 12 }]}>
+        <Text style={styles.contentTitle}>{screenTitles[activeTab]}</Text>
+        <Text style={styles.contentSub}>{screenSubs[activeTab]}</Text>
       </View>
 
       {renderScreen()}
@@ -1062,10 +1089,27 @@ const styles = StyleSheet.create({
   mainContent: { flex: 1 },
 
   // Home
-  homeGreeting:      { backgroundColor: '#fff', borderRadius: 16, padding: 20, borderLeftWidth: 4, borderLeftColor: GREEN },
+  homeGreeting: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 18,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    borderLeftWidth: 4, borderLeftColor: GREEN,
+    borderWidth: 1, borderColor: '#eef2ee',
+  },
+  homeGreetingIcon: {
+    width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
+    alignItems: 'center', justifyContent: 'center',
+  },
   homeGreetingTitle: { fontSize: 18, fontWeight: '800', color: '#222' },
   homeGreetingSub:   { fontSize: 13, color: '#666', marginTop: 4 },
-  homeStatsGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  contentTitleBar: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8ece8',
+  },
+  contentTitle: { fontSize: 22, fontWeight: '800', color: '#1a1a1a' },
+  contentSub:   { fontSize: 13, color: '#888', marginTop: 2 },
   homeStatCard: {
     width: '47%', backgroundColor: '#fff', borderRadius: 14,
     padding: 16, alignItems: 'center', borderTopWidth: 3,

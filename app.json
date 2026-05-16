@@ -17,10 +17,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.pillpal.app",
-      "splash": {
-        "image": "./assets/splash-icon.png",
-        "resizeMode": "contain",
-        "backgroundColor": "#2d7a3a"
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -29,18 +27,28 @@
         "backgroundColor": "#2d7a3a"
       },
       "package": "com.pillpal.app",
-      "splash": {
-        "image": "./assets/splash-icon.png",
-        "resizeMode": "contain",
-        "backgroundColor": "#2d7a3a"
-      }
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#2d7a3a",
+          "defaultChannel": "medication-reminders"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "pillpal-app"
+        "projectId": "YOUR_EAS_PROJECT_ID"
       }
     }
   }
