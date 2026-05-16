@@ -18,7 +18,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.pillpal.app",
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -48,8 +50,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "f05318b2-f032-4208-89f7-b0c91ab79d6b"
       }
-    }
+    },
+    "owner": "itsmaple01"
   }
 }
