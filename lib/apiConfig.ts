@@ -22,5 +22,8 @@ export function getApiBaseUrl(): string {
     }
   }
 
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl) return envUrl.replace(/\/$/, '');
+
   return 'http://192.168.1.52:3001';
 }
