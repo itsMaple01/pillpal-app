@@ -2,7 +2,7 @@
   "expo": {
     "name": "PillPal",
     "slug": "pillpal-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -19,6 +19,7 @@
       "bundleIdentifier": "com.pillpal.app",
       "infoPlist": {
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
         ]
       }
@@ -30,6 +31,9 @@
       },
       "package": "com.pillpal.app",
       "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "POST_NOTIFICATIONS"
@@ -49,10 +53,17 @@
       ]
     ],
     "extra": {
+      "apiUrl": "https://pillpal-app.onrender.com",
       "eas": {
         "projectId": "f05318b2-f032-4208-89f7-b0c91ab79d6b"
       }
     },
-    "owner": "itsmaple01"
+    "owner": "itsmaple01",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/f05318b2-f032-4208-89f7-b0c91ab79d6b"
+    }
   }
 }

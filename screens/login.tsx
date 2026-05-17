@@ -10,6 +10,8 @@ import AppIcon from '@/components/AppIcon';
 import { validateAge, validateEmail } from '@/utils/algorithms/linear';
 
 interface Props {
+  initialTab?: 'login' | 'signup';
+  onBack?: () => void;
   onAuthSuccess: (
     uid: string,
     email: string,
@@ -32,8 +34,8 @@ const labelStyles = StyleSheet.create({
   text: { fontSize: 14, fontWeight: '600', color: '#444' },
 });
 
-export default function LoginScreen({ onAuthSuccess }: Props) {
-  const [tab, setTab] = useState<'login' | 'signup'>('login');
+export default function LoginScreen({ initialTab = 'login', onBack, onAuthSuccess }: Props) {
+  const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
   const [fullName, setFullName] = useState('');
   const [age, setAge] = useState('');
   const [healthCondition, setHealthCondition] = useState('');
@@ -89,6 +91,12 @@ export default function LoginScreen({ onAuthSuccess }: Props) {
 
         <View style={styles.circleTopLeft} />
         <View style={styles.circleBottomRight} />
+
+        {onBack && (
+          <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={styles.header}>
           <View style={styles.logoBox}>
@@ -293,4 +301,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontSize: 13, marginTop: 28, textAlign: 'center',
   },
+  backBtn: {
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  backText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 });

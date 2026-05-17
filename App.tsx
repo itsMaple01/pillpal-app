@@ -4,7 +4,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '@/lib/firebase';
-import { getUser } from '@/api/index';
+import { resolveUserRole } from '@/lib/resolveUserRole';
+import WelcomeScreen from './screens/welcome';
 import LoginScreen from './screens/login';
 import RoleSelectScreen from './screens/role-select';
 import PatientDashboard from './screens/patient-dashboard';
@@ -15,7 +16,8 @@ import { setupNotifications } from './lib/pushNotifications';
 
 type SignupProfile = { full_name: string; age: number; health_condition: string | null };
 
-type Screen = 'loading' | 'login' | 'roleSelect' | 'patientDash' | 'caretakerDash';
+type Screen = 'loading' | 'welcome' | 'login' | 'roleSelect' | 'patientDash' | 'caretakerDash';
+type LoginTab = 'login' | 'signup';
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -24,6 +26,7 @@ export default function App() {
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [signupProfile, setSignupProfile] = useState<SignupProfile | null>(null);
+  const [loginTab, setLoginTab] = useState<LoginTab>('login');
 
   useEffect(() => {
     setupNotifications().catch(() => {});
@@ -41,9 +44,8 @@ export default function App() {
             setScreen(cachedRole === 'patient' ? 'patientDash' : 'caretakerDash');
             return;
           }
-          const res = await getUser(user.uid);
-          const dbRole = res.data?.role;
-          if (dbRole === 'patient' || dbRole === 'caretaker') {
+          const dbRole = await resolveUserRole(user.uid, user.email);
+          if (dbRole) {
             setRole(dbRole);
             await AsyncStorage.setItem(`role_${user.uid}`, dbRole);
             setScreen(dbRole === 'patient' ? 'patientDash' : 'caretakerDash');
@@ -54,7 +56,7 @@ export default function App() {
           setScreen('roleSelect');
         }
       } else {
-        setScreen('login');
+        setScreen('welcome');
       }
     });
     return unsubscribe;
@@ -79,9 +81,8 @@ export default function App() {
           setScreen(cachedRole === 'patient' ? 'patientDash' : 'caretakerDash');
           return;
         }
-        const res = await getUser(userId);
-        const dbRole = res.data?.role;
-        if (dbRole === 'patient' || dbRole === 'caretaker') {
+        const dbRole = await resolveUserRole(userId, userEmail);
+        if (dbRole) {
           setRole(dbRole);
           await AsyncStorage.setItem(`role_${userId}`, dbRole);
           setScreen(dbRole === 'patient' ? 'patientDash' : 'caretakerDash');
@@ -116,19 +117,35 @@ export default function App() {
     setUid(null);
     setEmail(null);
     setSignupProfile(null);
-    setScreen('login');
+    setScreen('welcome');
   };
 
   return (
     <SafeAreaProvider>
-      {screen !== 'loading' && screen !== 'login' && <OfflineBanner />}
+      {screen !== 'loading' && screen !== 'welcome' && screen !== 'login' && <OfflineBanner />}
       {screen === 'loading' && (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2d7a3a' }}>
           <ActivityIndicator size="large" color="#fff" />
         </View>
       )}
+      {screen === 'welcome' && (
+        <WelcomeScreen
+          onGetStarted={() => {
+            setLoginTab('signup');
+            setScreen('login');
+          }}
+          onLogin={() => {
+            setLoginTab('login');
+            setScreen('login');
+          }}
+        />
+      )}
       {screen === 'login' && (
-        <LoginScreen onAuthSuccess={handleAuthSuccess} />
+        <LoginScreen
+          initialTab={loginTab}
+          onBack={() => setScreen('welcome')}
+          onAuthSuccess={handleAuthSuccess}
+        />
       )}
       {screen === 'roleSelect' && (
         <RoleSelectScreen
@@ -140,7 +157,7 @@ export default function App() {
             setUid(null);
             setEmail(null);
             setSignupProfile(null);
-            setScreen('login');
+            setScreen('welcome');
           }}
         />
       )}
