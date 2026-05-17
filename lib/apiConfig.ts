@@ -6,7 +6,7 @@ export function getApiBaseUrl(): string {
   if (Platform.OS === 'web') {
     return typeof window !== 'undefined' && window.location?.hostname
       ? `http://${window.location.hostname}:3001`
-      : 'http://localhost:3001';
+      : 'https://pillpal-app.onrender.com';
   }
 
   const hostUri =
