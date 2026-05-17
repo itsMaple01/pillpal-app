@@ -40,7 +40,11 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
       });
       onRoleSelected(role);
     } catch (err: any) {
-      Alert.alert('Error', 'Could not save your role. Please try again.');
+      const msg = err?.response?.data?.error ?? err?.message;
+      const hint = msg?.includes('Network') || err?.code === 'ECONNABORTED'
+        ? 'Cannot reach the server. Check your internet connection.'
+        : 'Could not save your role. Please try again.';
+      Alert.alert('Error', typeof msg === 'string' && msg.length < 120 ? msg : hint);
     } finally {
       setLoading(null);
     }

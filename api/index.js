@@ -9,6 +9,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.send('PillPal API is running');
+});
+
+app.get('/health', (req, res) => {
+  res.json({ ok: true, service: 'pillpal-api' });
+});
+
 // Routes
 app.use('/api/users', require('./routes/users'));
 app.use('/api/medications', require('./routes/medications'));

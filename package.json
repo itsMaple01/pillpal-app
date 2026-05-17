@@ -19,6 +19,7 @@
     "expo": "~54.0.33",
     "expo-notifications": "~0.32.12",
     "expo-status-bar": "~3.0.9",
+    "expo-updates": "~29.0.17",
     "firebase": "^12.13.0",
     "firebase-admin": "^13.9.0",
     "react": "19.1.0",

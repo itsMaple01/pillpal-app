@@ -2,9 +2,89 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 
+async function migrateFirebaseUid(client, oldUid, newUid, email, role, full_name, age, health_condition) {
+  await client.query(
+    `UPDATE users SET firebase_uid = $1, email = $2, role = COALESCE($3, role),
+      full_name = COALESCE($4, full_name), age = COALESCE($5, age),
+      health_condition = COALESCE($6, health_condition)
+     WHERE firebase_uid = $7`,
+    [newUid, email, role, full_name ?? null, age ?? null, health_condition ?? null, oldUid],
+  );
+  await client.query(
+    'UPDATE caretaker_patients SET caretaker_uid = $1 WHERE caretaker_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE caretaker_patients SET patient_uid = $1 WHERE patient_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE medications SET patient_uid = $1 WHERE patient_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE link_requests SET patient_uid = $1 WHERE patient_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE link_requests SET caretaker_uid = $1 WHERE caretaker_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE link_codes SET patient_uid = $1 WHERE patient_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE alerts SET caretaker_uid = $1 WHERE caretaker_uid = $2',
+    [newUid, oldUid],
+  );
+  await client.query(
+    'UPDATE alerts SET patient_uid = $1 WHERE patient_uid = $2',
+    [newUid, oldUid],
+  );
+}
+
 router.post('/sync', async (req, res) => {
   const { firebase_uid, email, role, full_name, age, health_condition } = req.body;
+  if (!firebase_uid || !email || !role) {
+    return res.status(400).json({ error: 'firebase_uid, email, and role are required' });
+  }
   try {
+    const existingByEmail = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+      [email],
+    );
+    if (
+      existingByEmail.rows.length > 0 &&
+      existingByEmail.rows[0].firebase_uid !== firebase_uid
+    ) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await migrateFirebaseUid(
+          client,
+          existingByEmail.rows[0].firebase_uid,
+          firebase_uid,
+          email,
+          role,
+          full_name,
+          age,
+          health_condition,
+        );
+        await client.query('COMMIT');
+        const updated = await pool.query(
+          'SELECT * FROM users WHERE firebase_uid = $1',
+          [firebase_uid],
+        );
+        return res.json(updated.rows[0]);
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
+
     const result = await pool.query(`
       INSERT INTO users (firebase_uid, email, role, full_name, age, health_condition)
       VALUES ($1, $2, $3, $4, $5, $6)
