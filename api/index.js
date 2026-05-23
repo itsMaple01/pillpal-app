@@ -10,11 +10,11 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.send('PillPal API is running');
+  res.send('GabayRa API is running');
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'pillpal-api' });
+  res.json({ ok: true, service: 'gabayra-api' });
 });
 
 // Routes
@@ -25,6 +25,7 @@ app.use('/api/patients', require('./routes/patients'));
 app.use('/api/linking', require('./routes/linking'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/reminders', require('./routes/reminders'));
+app.use('/api/intelligence', require('./routes/intelligence'));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

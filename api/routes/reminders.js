@@ -42,7 +42,7 @@ router.post('/send', async (req, res) => {
     let pushResult = { ok: false, error: 'Patient has not enabled notifications on their device yet.' };
     if (row.patient_token) {
       pushResult = await pushToUser(row.patient_token, {
-        title: 'PillPal — Medication reminder',
+        title: 'GabayRa — Medication reminder',
         body,
         data: { type: 'caregiver_reminder', patient_uid, caretaker_uid },
       });
