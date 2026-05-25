@@ -1,4 +1,6 @@
 const pool = require('../db');
+const { suggestReminderLead } = require('./ml/reinforcementLearning');
+const { predictMissRisk } = require('./ml/predictiveAnalytics');
 
 const DEFAULT_LEAD = 5;
 
@@ -86,23 +88,38 @@ async function getReminderPlan(firebase_uid) {
     [firebase_uid],
   );
 
+  const eventsRes = await pool.query(
+    `SELECT event_type, scheduled_at, responded_at FROM intelligence_events
+     WHERE firebase_uid = $1 ORDER BY responded_at DESC LIMIT 120`,
+    [firebase_uid],
+  );
+  const events = eventsRes.rows;
+
   if (profile.rows.length === 0) {
+    const rl = suggestReminderLead(events, {});
+    const risk = predictMissRisk(events, {});
     return {
-      preferred_lead_minutes: DEFAULT_LEAD,
+      preferred_lead_minutes: rl.preferred_lead_minutes,
       notify_at_exact_time: false,
       cluster_label: 'default',
       avg_response_delay_minutes: 0,
-      engine: 'rules-v1',
+      miss_risk: risk.miss_risk,
+      miss_risk_label: risk.label,
+      engine: 'rules-v1+ml-stub',
     };
   }
 
   const row = profile.rows[0];
+  const rl = suggestReminderLead(events, row);
+  const risk = predictMissRisk(events, row);
   return {
-    preferred_lead_minutes: row.preferred_lead_minutes ?? DEFAULT_LEAD,
+    preferred_lead_minutes: rl.preferred_lead_minutes ?? row.preferred_lead_minutes ?? DEFAULT_LEAD,
     notify_at_exact_time: false,
     cluster_label: row.cluster_label ?? 'default',
     avg_response_delay_minutes: row.avg_response_delay_minutes ?? 0,
-    engine: 'rules-v1',
+    miss_risk: risk.miss_risk,
+    miss_risk_label: risk.label,
+    engine: `rules-v1+${rl.policy_version}`,
   };
 }
 

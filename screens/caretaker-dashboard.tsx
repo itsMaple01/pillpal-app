@@ -25,6 +25,8 @@ import PatientSearchBar from '@/components/PatientSearchBar';
 import AppIcon, { TAB_ICONS } from '@/components/AppIcon';
 import MenuRow from '@/components/MenuRow';
 import StatTile from '@/components/StatTile';
+import SwipeTabHost from '@/components/SwipeTabHost';
+import { SkeletonPatientRow } from '@/components/Skeleton';
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -40,7 +42,7 @@ const GREEN       = '#2d7a3a';
 const GREEN_DARK  = '#1e5c28';
 const GREEN_LIGHT = '#e8f5e9';
 
-type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Alerts' | 'Manage';
+type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Manage';
 
 const FILTERS = ['All', 'Active', 'Inactive', 'Missed Doses', 'Needs Attention'];
 
@@ -75,7 +77,6 @@ const SIDE_TABS: { icon: IonName; label: CaretakerTab }[] = [
   { icon: TAB_ICONS.Patients, label: 'Patients' },
   { icon: TAB_ICONS.Schedule, label: 'Schedule' },
   { icon: TAB_ICONS.Medications, label: 'Medications' },
-  { icon: TAB_ICONS.Alerts, label: 'Alerts' },
   { icon: TAB_ICONS.Manage, label: 'Manage' },
 ];
 
@@ -103,6 +104,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [editName,          setEditName]           = useState('');
   const [editAge,           setEditAge]            = useState('');
   const [editCondition,     setEditCondition]      = useState('');
+  const [medsShowAlerts,    setMedsShowAlerts]     = useState(false);
 
   const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
@@ -168,9 +170,10 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         : `Reminder saved. ${pushErr || 'Patient must open the installed GabayRa app once to enable push notifications.'}`;
       if (Platform.OS === 'web') window.alert(msg);
       else Alert.alert(pushSent ? 'Reminder sent' : 'Reminder recorded', msg);
-    } catch {
-      if (Platform.OS === 'web') window.alert('Could not send reminder. Check your connection.');
-      else Alert.alert('Error', 'Could not send reminder. Check your connection.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? err?.message ?? 'Could not send reminder.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not send reminder', String(msg));
     }
   }, [uid]);
 
@@ -497,6 +500,17 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
 
   // ── MEDICATIONS SCREEN ──
   const MedicationsTab = () => {
+    if (medsShowAlerts) {
+      return (
+        <View style={{ flex: 1 }}>
+          <TouchableOpacity style={ct.backBtn} onPress={() => setMedsShowAlerts(false)}>
+            <Text style={ct.backBtnText}>← Back to medications</Text>
+          </TouchableOpacity>
+          {renderAlertsTab()}
+        </View>
+      );
+    }
+
     // Patient selected — show their meds
     if (selectedPatient) {
       return (
@@ -532,10 +546,14 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       >
         {/* Header banner */}
         <View style={ct.medsHeader}>
-          <Text style={ct.medsHeaderTitle}>💊 Patient Medications</Text>
-          <Text style={ct.medsHeaderSub}>
-            Select a patient to view their current medications
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={ct.medsHeaderTitle}>Patient medications</Text>
+            <Text style={ct.medsHeaderSub}>Select a patient · Alerts live here too</Text>
+          </View>
+          <TouchableOpacity style={ct.alertsChip} onPress={() => setMedsShowAlerts(true)}>
+            <AppIcon name="notifications-outline" size={18} color="#fff" />
+            <Text style={ct.alertsChipText}>Alerts</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Summary stats */}
@@ -557,8 +575,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         <Text style={ct.pickerSectionTitle}>SELECT A PATIENT</Text>
 
         {loading ? (
-          <View style={ct.loadingWrap}>
-            <ActivityIndicator size="large" color={GREEN} />
+          <View style={{ gap: 10 }}>
+            <SkeletonPatientRow />
+            <SkeletonPatientRow />
           </View>
         ) : patients.length === 0 ? (
           <View style={ct.emptyCard}>
@@ -594,7 +613,6 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                   <Text style={[ct.compBadgeText, { color: statusColor.text }]}>{status}</Text>
                 </View>
 
-                <Text style={ct.chevron}>›</Text>
               </TouchableOpacity>
             );
           })
@@ -782,9 +800,24 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           onPress={onSwitchToFamily}
         />
       )}
-      <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alert preferences" />
-      <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
-      <MenuRow icon="help-circle-outline" label="Help & support" sub="Get assistance" />
+      <MenuRow
+        icon="notifications-outline"
+        label="Notification settings"
+        sub="Alert thresholds and reminder defaults"
+        onPress={() => showAlert('Notifications', 'Configure push and in-app alerts in a future update. Reminders use your intelligence profile today.')}
+      />
+      <MenuRow
+        icon="lock-closed-outline"
+        label="Privacy & security"
+        sub="Data and account controls"
+        onPress={() => showAlert('Privacy', 'Your data is stored securely on Neon and Firebase. Contact support to export or delete your account.')}
+      />
+      <MenuRow
+        icon="help-circle-outline"
+        label="Help & support"
+        sub="Guides and contact"
+        onPress={() => showAlert('Help', 'Swipe bottom icons to move between sections. Use Medications → Alerts for patient warnings.')}
+      />
 
       <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
         <AppIcon name="log-out-outline" size={22} color="#c62828" />
@@ -800,7 +833,6 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       case 'Patients':    return renderPatientsTab();
       case 'Schedule':    return renderScheduleTab();
       case 'Medications': return <MedicationsTab />;
-      case 'Alerts':      return renderAlertsTab();
       case 'Manage':      return renderManageTab();
     }
   };
@@ -810,15 +842,13 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     Patients:    'Caregiver/Family Dashboard',
     Schedule:    'Schedules',
     Medications: 'Medications',
-    Alerts:      'Alerts',
     Manage:      'Manage',
   };
   const screenSubs: Record<CaretakerTab, string> = {
     Home:        'Welcome back!',
     Patients:    "Good day! Here's your patient overview.",
-    Schedule:    'View all patient medication schedules.',
-    Medications: 'View medications for each patient.',
-    Alerts:      'Patients that need your attention.',
+    Schedule:    'All linked patients — full day view.',
+    Medications: 'Meds and alerts for each patient.',
     Manage:      'Your account and settings.',
   };
 
@@ -951,22 +981,19 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         <Text style={styles.contentSub}>{screenSubs[activeTab]}</Text>
       </View>
 
-      {renderScreen()}
-
-      <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
-        {SIDE_TABS.map(tab => (
-          <TouchableOpacity key={tab.label} style={styles.tabItem} onPress={() => setActiveTab(tab.label)}>
-            <AppIcon
-              name={tab.icon}
-              size={22}
-              color={activeTab === tab.label ? GREEN : '#aaa'}
-            />
-            <Text style={[styles.tabLabel, activeTab === tab.label && { color: GREEN, fontWeight: '700' }]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <SwipeTabHost
+        tabs={SIDE_TABS.map(t => ({ key: t.label, icon: t.icon }))}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        bottomInset={insets.bottom || 10}
+        iconOnly
+      >
+        {renderHomeTab()}
+        {renderPatientsTab()}
+        {renderScheduleTab()}
+        <MedicationsTab />
+        {renderManageTab()}
+      </SwipeTabHost>
     </View>
     <LinkPatientModal
       visible={showLinkModal}
@@ -996,9 +1023,15 @@ const ct = StyleSheet.create({
 
   medsHeader: {
     backgroundColor: GREEN, borderRadius: 18, padding: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
   },
   medsHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
   medsHeaderSub:   { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 4 },
+  alertsChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+  },
+  alertsChipText: { color: '#fff', fontWeight: '800', fontSize: 13 },
 
   summaryRow:  { flexDirection: 'row', gap: 10 },
   summaryCard: { flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },

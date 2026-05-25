@@ -3,6 +3,13 @@ import {
   ScrollView, StatusBar, Dimensions,
   Alert, Modal, Platform, Switch, Pressable,
 } from 'react-native';
+import SwipeTabHost from '@/components/SwipeTabHost';
+import WeekCalendarStrip from '@/components/WeekCalendarStrip';
+import TutorialOverlay from '@/components/TutorialOverlay';
+import { SkeletonMedCard } from '@/components/Skeleton';
+import {
+  isTutorialDone, setTutorialDone, PATIENT_TUTORIAL,
+} from '@/lib/tutorial';
 import { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -460,11 +467,11 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
 interface MedCardProps {
   medications: PatientMedication[];
   onToggleTaken: (id: string) => void;
-  onDelete: (id: string) => void;
+  onEdit: (med: PatientMedication) => void;
   onAddPress: () => void;
 }
 
-function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: MedCardProps) {
+function MedicationsCard({ medications, onToggleTaken, onEdit, onAddPress }: MedCardProps) {
   const pending = medications.filter(m => !m.taken).length;
   const taken   = medications.filter(m =>  m.taken).length;
 
@@ -508,23 +515,24 @@ function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: M
       ) : (
         <View style={mc.list}>
           {medications.map((med, i) => (
-            <View key={med.id} style={[mc.medRow, i === 0 && mc.medRowFirst]}>
-              <Switch
-                value={med.taken}
-                onValueChange={() => onToggleTaken(med.id)}
-                trackColor={{ false: '#f5c842', true: GREEN }}
-                thumbColor="#fff"
-              />
+            <Pressable
+              key={med.id}
+              style={[mc.medRow, i === 0 && mc.medRowFirst]}
+              onPress={() => onEdit(med)}
+            >
               <View style={mc.medInfo}>
                 <Text style={[mc.medName, med.taken && mc.medNameTaken]}>{med.name}</Text>
                 <Text style={mc.medSub}>
                   {med.dosage !== 'As prescribed' ? med.dosage : 'Take as needed'} · {med.time}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => onDelete(med.id)} style={mc.deleteBtn}>
-                <Text style={mc.deleteArrow}>›</Text>
-              </TouchableOpacity>
-            </View>
+              <Switch
+                value={med.taken}
+                onValueChange={() => onToggleTaken(med.id)}
+                trackColor={{ false: '#e8d9a8', true: GREEN }}
+                thumbColor="#fff"
+              />
+            </Pressable>
           ))}
         </View>
       )}
@@ -550,6 +558,9 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [displayName, setDisplayName] = useState('Patient');
   const [showLinkCaretaker, setShowLinkCaretaker] = useState(false);
   const [patientIncomingReqs, setPatientIncomingReqs] = useState<any[]>([]);
+  const [medsLoading, setMedsLoading] = useState(true);
+  const [tutorialIdx, setTutorialIdx] = useState(0);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   // ── Ref so callbacks always see current medications without stale closures ──
   const medicationsRef = useRef<PatientMedication[]>([]);
@@ -560,7 +571,20 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   useEffect(() => {
     if (!uid) return;
-    return subscribePatientMedications(uid, setMedications);
+    setMedsLoading(true);
+    return subscribePatientMedications(uid, meds => {
+      setMedications(meds);
+      setMedsLoading(false);
+    });
+  }, [uid]);
+
+  useEffect(() => {
+    isTutorialDone('patient', uid).then(done => {
+      if (!done) {
+        setTutorialIdx(0);
+        setShowTutorial(true);
+      }
+    });
   }, [uid]);
 
   const { isConnected, isInternetReachable } = useNetworkStatus();
@@ -821,12 +845,14 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         <StatTile icon="checkmark-circle-outline" value={takenToday} label="Taken today" accent={GREEN} iconBg="#f1f8e9" />
       </View>
 
-      <MedicationsCard
-        medications={medications}
-        onToggleTaken={handleToggleTaken}
-        onDelete={handleDeleteMed}
-        onAddPress={() => { setEditingMed(null); setActiveTab('Medications'); setShowAddModal(true); }}
-      />
+      {medsLoading ? <SkeletonMedCard /> : (
+        <MedicationsCard
+          medications={medications}
+          onToggleTaken={handleToggleTaken}
+          onEdit={m => { setEditingMed(m); setShowAddModal(true); }}
+          onAddPress={() => { setEditingMed(null); setShowAddModal(true); }}
+        />
+      )}
 
       <MenuRow
         icon="medical-outline"
@@ -838,62 +864,22 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     </ScrollView>
   );
 
+  const markedDates = medications.map(() => today.toISOString().slice(0, 10));
+
   // ── CALENDAR SCREEN ──
-  const CalendarScreen = () => {
-    const daysInMonth = getDaysInMonth2(calendarMonth);
-    const firstDay    = getFirstDayOfMonth(calendarMonth);
-    const cells: (number | null)[] = [
-      ...Array.from({ length: firstDay }, (): null => null),
-      ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-    ];
-    const isToday    = (d: number) => d === today.getDate() && calendarMonth.getMonth() === today.getMonth() && calendarMonth.getFullYear() === today.getFullYear();
-    const isSelected = (d: number) => d === selectedDate.getDate() && calendarMonth.getMonth() === selectedDate.getMonth() && calendarMonth.getFullYear() === selectedDate.getFullYear();
-
-    return (
+  const CalendarScreen = () => (
       <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
-        <View style={styles.calendarCard}>
-          <View style={styles.calendarNav}>
-            <TouchableOpacity onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>
-              <Text style={styles.calNavBtn}>‹</Text>
-            </TouchableOpacity>
-            <Text style={styles.calMonthLabel}>{MONTHS[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</Text>
-            <TouchableOpacity onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>
-              <Text style={styles.calNavBtn}>›</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.calDaysRow}>
-            {DAYS.map(d => <Text key={d} style={styles.calDayLabel}>{d}</Text>)}
-          </View>
-          <View style={styles.calGrid}>
-            {cells.map((day, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[
-                  styles.calCell,
-                  day !== null && isToday(day)    ? styles.calCellToday    : undefined,
-                  day !== null && isSelected(day) ? styles.calCellSelected : undefined,
-                ]}
-                onPress={() => { if (day !== null) setSelectedDate(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day)); }}
-                disabled={day === null}
-              >
-                <Text style={[
-                  styles.calCellText,
-                  day !== null && isToday(day)    ? styles.calCellTextToday    : undefined,
-                  day !== null && isSelected(day) ? styles.calCellTextSelected : undefined,
-                ]}>
-                  {day !== null ? String(day) : ''}
-                </Text>
-                {day !== null && medications.length > 0 ? <View style={styles.calDot} /> : null}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <WeekCalendarStrip
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          markedDates={markedDates}
+        />
 
-        <View style={styles.sectionHeader}>
+        <View style={[styles.sectionHeader, { marginTop: 16 }]}>
           <Text style={styles.sectionTitle}>
             {selectedDate.toDateString() === today.toDateString()
               ? "Today's"
-              : `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}`} Schedule
+              : `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}`} schedule
           </Text>
         </View>
 
@@ -926,8 +912,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           ))
         )}
       </ScrollView>
-    );
-  };
+  );
 
   // ── MANAGE SCREEN ──
   const ManageScreen = () => (
@@ -1055,33 +1040,28 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
               : undefined
         }
         paddingTop={insets.top + 14}
-        rightAction={
-          activeTab === 'Medications'
-            ? { label: '+ Add', onPress: () => { setEditingMed(null); setShowAddModal(true); } }
-            : undefined
-        }
       />
 
-      {renderScreen()}
-
-      <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
-        {TABS.map(tab => (
-          <TouchableOpacity
-            key={tab.label}
-            style={styles.tabItem}
-            onPress={() => setActiveTab(tab.label)}
-          >
-            <AppIcon
-              name={PATIENT_TAB_ICONS[tab.label]}
-              size={22}
-              color={activeTab === tab.label ? GREEN : '#aaa'}
-            />
-            <Text style={[styles.tabLabel, activeTab === tab.label && styles.tabLabelActive]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <SwipeTabHost
+        tabs={TABS.map(t => ({ key: t.label, icon: PATIENT_TAB_ICONS[t.label] }))}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        bottomInset={insets.bottom || 10}
+        iconOnly
+      >
+        <HomeScreen />
+        <CalendarScreen />
+        <MedicationsScreen
+          medications={medications}
+          onToggleTaken={handleToggleTaken}
+          onDelete={handleDeleteMed}
+          onAddPress={() => { setEditingMed(null); setShowAddModal(true); }}
+          onEdit={m => { setEditingMed(m); setShowAddModal(true); }}
+          onRefill={handleRefill}
+          onSuspend={handleSuspendMed}
+        />
+        <ManageScreen />
+      </SwipeTabHost>
 
       <AddMedicationModal
         visible={showAddModal}
@@ -1090,6 +1070,23 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         saving={saving}
         editingMed={editingMed}
         existingMedicationTimes={medications.map(m => m.time).filter(Boolean)}
+      />
+      <TutorialOverlay
+        visible={showTutorial}
+        steps={PATIENT_TUTORIAL}
+        index={tutorialIdx}
+        onSkip={async () => {
+          setShowTutorial(false);
+          await setTutorialDone('patient', uid);
+        }}
+        onNext={async () => {
+          if (tutorialIdx >= PATIENT_TUTORIAL.length - 1) {
+            setShowTutorial(false);
+            await setTutorialDone('patient', uid);
+          } else {
+            setTutorialIdx(i => i + 1);
+          }
+        }}
       />
       <LinkCaretakerModal
         visible={showLinkCaretaker}
@@ -1470,14 +1467,12 @@ const mc = StyleSheet.create({
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 1 },
 
   list:        { paddingHorizontal: 16, paddingBottom: 4 },
-  medRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
+  medRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 4, gap: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
   medRowFirst: { borderTopWidth: 0 },
-  medInfo:     { flex: 1 },
+  medInfo:     { flex: 1, minWidth: 0 },
   medName:     { fontSize: TEXT.md, fontWeight: '700', color: '#1a1a1a' },
   medNameTaken:{ color: '#aaa', textDecorationLine: 'line-through' },
   medSub:      { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
-  deleteBtn:   { padding: 4 },
-  deleteArrow: { fontSize: 22, color: '#ccc', fontWeight: '300' },
 
   empty:       { alignItems: 'center', paddingVertical: 32, gap: 8 },
   emptyIcon:   { fontSize: 36 },

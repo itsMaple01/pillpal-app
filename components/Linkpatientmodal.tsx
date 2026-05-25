@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { redeemPatientLinkCode } from '@/api/index';
 import AppIcon from '@/components/AppIcon';
 import CenteredModal from '@/components/CenteredModal';
+import SegmentedCodeInput from '@/components/SegmentedCodeInput';
 
 const GREEN       = '#2d7a3a';
 const GREEN_DARK  = '#1e5c28';
@@ -66,16 +67,9 @@ export default function LinkPatientModal({ visible, onClose, caretakerUid, onLin
       </View>
 
       <View style={s.body}>
-        <Text style={s.label}>PATIENT CODE</Text>
-        <TextInput
-          style={[s.input, error ? s.inputError : null]}
-          placeholder="e.g. ABC123"
-          placeholderTextColor="#bbb"
-          value={code}
-          onChangeText={t => { setCode(t.toUpperCase()); setError(''); }}
-          autoCapitalize="characters"
-          editable={!loading}
-        />
+        <Text style={s.label}>Patient code</Text>
+        <Text style={s.hint}>Enter each character in its own box</Text>
+        <SegmentedCodeInput value={code} onChange={c => { setCode(c); setError(''); }} />
         {!!error && <Text style={s.errorText}>{error}</Text>}
       </View>
 
@@ -115,17 +109,9 @@ const s = StyleSheet.create({
   title:    { fontSize: 20, fontWeight: '800', color: '#fff', marginTop: 4 },
   subtitle: { fontSize: 13, color: 'rgba(255,255,255,0.88)', textAlign: 'center', lineHeight: 18, marginTop: 8 },
 
-  body: { padding: 20, gap: 8 },
-  label: {
-    fontSize: 11, fontWeight: '800', color: '#888',
-    letterSpacing: 1, textTransform: 'uppercase',
-  },
-  input: {
-    borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 15, color: '#222', backgroundColor: '#fafafa',
-  },
-  inputError: { borderColor: '#d32f2f', backgroundColor: '#fff8f8' },
+  body: { padding: 20, gap: 12 },
+  label: { fontSize: 14, fontWeight: '600', color: '#444', marginBottom: 4 },
+  hint: { fontSize: 13, color: '#888', marginBottom: 12 },
   errorText:  { fontSize: 12, color: '#d32f2f' },
 
   footer: {

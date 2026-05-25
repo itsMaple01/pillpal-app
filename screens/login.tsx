@@ -1,14 +1,17 @@
-import { useState, type ComponentProps } from 'react';
+import { useState, useRef, type ComponentProps } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
-  KeyboardAvoidingView, Platform, ScrollView,
+  KeyboardAvoidingView, Platform, ScrollView, Dimensions,
+  NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import AppIcon from '@/components/AppIcon';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
-import { validateAge, validateEmail } from '@/utils/algorithms/linear';
+import { validateEmail } from '@/utils/algorithms/linear';
+import DateOfBirthField, { ageFromDateOfBirth } from '@/components/DateOfBirthField';
+import { theme } from '@/lib/theme';
 
 interface Props {
   initialTab?: 'login' | 'signup';
@@ -38,7 +41,9 @@ const labelStyles = StyleSheet.create({
 export default function LoginScreen({ initialTab = 'login', onBack, onAuthSuccess }: Props) {
   const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
   const [fullName, setFullName] = useState('');
-  const [age, setAge] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState<string | null>(null);
+  const pagerRef = useRef<ScrollView>(null);
+  const pageWidth = Dimensions.get('window').width - 48;
   const [healthCondition, setHealthCondition] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -58,14 +63,18 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
       Alert.alert('Error', 'Please enter your full name');
       return;
     }
-    if (tab === 'signup' && !validateAge(age)) {
-      Alert.alert('Error', 'Please enter a valid age between 1 and 120');
+    if (tab === 'signup' && !dateOfBirth) {
+      Alert.alert('Error', 'Please choose your date of birth');
+      return;
+    }
+    const ageNum = dateOfBirth ? ageFromDateOfBirth(dateOfBirth) : 0;
+    if (tab === 'signup' && (ageNum < 1 || ageNum > 120)) {
+      Alert.alert('Error', 'Please enter a valid date of birth');
       return;
     }
     setLoading(true);
     try {
       if (tab === 'signup') {
-        const ageNum = parseInt(age, 10);
         const result = await createUserWithEmailAndPassword(auth, email, password);
         onAuthSuccess(result.user.uid, result.user.email ?? '', true, {
           full_name: fullName.trim(),
@@ -83,12 +92,26 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
     }
   };
 
+  const goTab = (t: 'login' | 'signup') => {
+    setTab(t);
+    pagerRef.current?.scrollTo({ x: t === 'login' ? 0 : pageWidth, animated: true });
+  };
+
+  const onPagerEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const i = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+    setTab(i === 0 ? 'login' : 'signup');
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.outer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
 
         <View style={styles.circleTopLeft} />
         <View style={styles.circleBottomRight} />
@@ -112,96 +135,113 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
           <View style={styles.tabRow}>
             <TouchableOpacity
               style={[styles.tab, tab === 'login' && styles.tabActive]}
-              onPress={() => setTab('login')}
+              onPress={() => goTab('login')}
             >
               <Text style={[styles.tabText, tab === 'login' && styles.tabTextActive]}>Login</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tab, tab === 'signup' && styles.tabActive]}
-              onPress={() => setTab('signup')}
+              onPress={() => goTab('signup')}
             >
               <Text style={[styles.tabText, tab === 'signup' && styles.tabTextActive]}>Sign Up</Text>
             </TouchableOpacity>
           </View>
 
-          {tab === 'signup' && (
-            <>
-              <View style={styles.fieldGroup}>
-                <FieldLabel icon="person-outline" text="Full Name" />
+          <ScrollView
+            ref={pagerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onPagerEnd}
+            style={{ width: pageWidth }}
+          >
+            <View style={{ width: pageWidth, gap: 0 }}>
+              <View style={styles.fieldGroupTight}>
+                <FieldLabel icon="mail-outline" text="Email" />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your full name"
+                  placeholder="you@example.com"
+                  placeholderTextColor="#aaa"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <FieldLabel icon="lock-closed-outline" text="Password" />
+                <View style={styles.passwordRow}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor="#aaa"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+                    <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.forgotBtn}>
+                <Text style={styles.forgotText}>Forgot password?</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ width: pageWidth }}>
+              <View style={styles.fieldGroupTight}>
+                <FieldLabel icon="person-outline" text="Full name" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Maria Santos"
                   placeholderTextColor="#aaa"
                   value={fullName}
                   onChangeText={setFullName}
                 />
               </View>
+              <DateOfBirthField value={dateOfBirth} onChange={setDateOfBirth} />
               <View style={styles.fieldGroup}>
-                <FieldLabel icon="calendar-outline" text="Age" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Your age (required)"
-                  placeholderTextColor="#aaa"
-                  value={age}
-                  onChangeText={setAge}
-                  keyboardType="number-pad"
-                />
-              </View>
-              <View style={styles.fieldGroup}>
-                <FieldLabel icon="heart-outline" text="Current condition (optional)" />
+                <FieldLabel icon="heart-outline" text="Health note (optional)" />
                 <TextInput
                   style={[styles.input, { minHeight: 72, textAlignVertical: 'top' }]}
-                  placeholder="e.g. hypertension — skip if you prefer not to say"
+                  placeholder="e.g. hypertension"
                   placeholderTextColor="#aaa"
                   value={healthCondition}
                   onChangeText={setHealthCondition}
                   multiline
                 />
               </View>
-            </>
-          )}
-          <View style={styles.fieldGroup}>
-            <FieldLabel icon="mail-outline" text="Email" />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor="#aaa"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <FieldLabel icon="lock-closed-outline" text="Password" />
-            <View style={styles.passwordRow}>
-              <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder="Enter your password"
-                placeholderTextColor="#aaa"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeBtn}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <AppIcon
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#888"
+              <View style={styles.fieldGroupTight}>
+                <FieldLabel icon="mail-outline" text="Email" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#aaa"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
                 />
-              </TouchableOpacity>
+              </View>
+              <View style={styles.fieldGroup}>
+                <FieldLabel icon="lock-closed-outline" text="Password" />
+                <View style={styles.passwordRow}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor="#aaa"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+                    <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
-          </View>
-
-          {tab === 'login' && (
-            <TouchableOpacity style={styles.forgotBtn}>
-              <Text style={styles.forgotText}>Forgot password?</Text>
-            </TouchableOpacity>
-          )}
+          </ScrollView>
 
           <TouchableOpacity style={styles.submitBtn} onPress={handleAuth} disabled={loading}>
             {loading ? (
@@ -213,7 +253,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setTab(tab === 'login' ? 'signup' : 'login')}>
+          <TouchableOpacity onPress={() => goTab(tab === 'login' ? 'signup' : 'login')}>
             <Text style={styles.toggleText}>
               {tab === 'login' ? "Don't have an account? " : 'Already have an account? '}
               <Text style={styles.toggleLink}>
@@ -277,7 +317,8 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 15, color: '#888', fontWeight: '500' },
   tabTextActive: { color: GREEN, fontWeight: '700' },
-  fieldGroup: { marginBottom: 16 },
+  fieldGroup: { marginBottom: 24 },
+  fieldGroupTight: { marginBottom: 12 },
   input: {
     backgroundColor: '#f7f7f7', borderRadius: 12,
     padding: 14, fontSize: 15, color: '#222',
