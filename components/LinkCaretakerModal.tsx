@@ -43,7 +43,7 @@ export default function LinkCaretakerModal({ visible, onClose, uid, email }: Pro
 
   const shareCode = async () => {
     if (!code) return;
-    const message = `Link with me on PillPal.\n\nMy code: ${code}\n(Valid 24 hours)\n\nOr use my email: ${email}`;
+    const message = `Link with me on GabayRa.\n\nMy code: ${code}\n(Valid 24 hours)\n\nOr use my email: ${email}`;
     try {
       if (Platform.OS === 'web') {
         await navigator.clipboard.writeText(message);
@@ -82,7 +82,7 @@ export default function LinkCaretakerModal({ visible, onClose, uid, email }: Pro
         <View style={s.iconCircle}>
           <AppIcon name="people" size={28} color="#fff" />
         </View>
-        <Text style={s.heroKicker}>PillPal</Text>
+        <Text style={s.heroKicker}>GabayRa</Text>
         <Text style={s.title}>Link caregiver / family</Text>
         <Text style={s.subtitle}>Share a code or send a request to their email.</Text>
       </View>

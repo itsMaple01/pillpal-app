@@ -7,6 +7,7 @@ import {
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import AppIcon from '@/components/AppIcon';
+import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { validateAge, validateEmail } from '@/utils/algorithms/linear';
 
 interface Props {
@@ -102,8 +103,8 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
           <View style={styles.logoBox}>
             <AppIcon name="medical" size={44} color="#fff" />
           </View>
-          <Text style={styles.appName}>PillPal</Text>
-          <Text style={styles.tagline}>Your Medication Companion</Text>
+          <Text style={styles.appName}>{APP_NAME}</Text>
+          <Text style={styles.tagline}>{APP_TAGLINE}</Text>
         </View>
 
         <View style={styles.card}>

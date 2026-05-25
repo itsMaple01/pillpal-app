@@ -33,6 +33,7 @@ type IonName = ComponentProps<typeof Ionicons>['name'];
 interface Props {
   onLogout: () => void;
   uid: string;
+  onSwitchToFamily?: () => void;
 }
 
 const GREEN       = '#2d7a3a';
@@ -78,7 +79,7 @@ const SIDE_TABS: { icon: IonName; label: CaretakerTab }[] = [
   { icon: TAB_ICONS.Manage, label: 'Manage' },
 ];
 
-export default function CaretakerDashboard({ onLogout, uid }: Props) {
+export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: Props) {
   const insets   = useSafeAreaInsets();
   const { width }= Dimensions.get('window');
   const isTablet = width >= 768;
@@ -164,7 +165,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       const pushErr = res.data?.push_error;
       const msg = pushSent
         ? `Reminder sent to ${patient.full_name ?? patient.email}. They should get a notification with sound.`
-        : `Reminder saved. ${pushErr || 'Patient must open the installed PillPal app once to enable push notifications.'}`;
+        : `Reminder saved. ${pushErr || 'Patient must open the installed GabayRa app once to enable push notifications.'}`;
       if (Platform.OS === 'web') window.alert(msg);
       else Alert.alert(pushSent ? 'Reminder sent' : 'Reminder recorded', msg);
     } catch {
@@ -649,8 +650,8 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                       <Text style={styles.scheduleSlotEmpty}>No meds</Text>
                     ) : (
                       meds.map(m => (
-                        <Text key={m.id} style={styles.scheduleMedLine} numberOfLines={2}>
-                          {m.taken ? '✓ ' : '○ '}{m.name} · {m.time}
+                        <Text key={m.id} style={styles.scheduleMedLine} numberOfLines={3}>
+                          {m.taken ? '✓ ' : '○ '}{m.name} · {m.time || 'No time'}
                         </Text>
                       ))
                     )}
@@ -658,6 +659,22 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                 );
               })}
             </View>
+            {(() => {
+              const unscheduled = (scheduleByPatient[p.firebase_uid] || []).filter(
+                m => !m.suspended && medicationTimeBucket(m.time) === null,
+              );
+              if (unscheduled.length === 0) return null;
+              return (
+                <View style={styles.scheduleUnscheduled}>
+                  <Text style={styles.scheduleSlotTime}>Unscheduled time</Text>
+                  {unscheduled.map(m => (
+                    <Text key={m.id} style={styles.scheduleMedLine}>
+                      {m.taken ? '✓ ' : '○ '}{m.name} · {m.time || '—'}
+                    </Text>
+                  ))}
+                </View>
+              );
+            })()}
           </View>
         ))
       )}
@@ -757,6 +774,14 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       />
 
       <Text style={styles.manageSection}>Settings</Text>
+      {onSwitchToFamily && (
+        <MenuRow
+          icon="home-outline"
+          label="Switch to Family view"
+          sub="Simpler home for supporting a few loved ones"
+          onPress={onSwitchToFamily}
+        />
+      )}
       <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alert preferences" />
       <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
       <MenuRow icon="help-circle-outline" label="Help & support" sub="Get assistance" />
@@ -765,7 +790,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
-      <Text style={styles.versionText}>PillPal v1.0.0</Text>
+      <Text style={styles.versionText}>GabayRa v1.0.1</Text>
     </ScrollView>
   );
 
@@ -875,7 +900,7 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         <View style={styles.sidebarPanel}>
           <View style={styles.sidebarLogo}>
             <AppIcon name="medical" size={26} color="#fff" />
-            <Text style={styles.sidebarLogoText}>PillPal</Text>
+            <Text style={styles.sidebarLogoText}>GabayRa</Text>
           </View>
           <View style={styles.sidebarNav}>
             {SIDE_TABS.map(tab => (
@@ -1205,14 +1230,15 @@ const styles = StyleSheet.create({
   schedulePatientHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   scheduleAvatar:        { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
   scheduleAvatarText:    { fontSize: 14, fontWeight: '800', color: GREEN },
-  schedulePatientName:   { fontSize: 14, fontWeight: '700', color: '#222' },
-  schedulePatientSub:    { fontSize: 12, color: '#888', marginTop: 2 },
+  schedulePatientName:   { fontSize: 17, fontWeight: '700', color: '#222' },
+  schedulePatientSub:    { fontSize: 14, color: '#888', marginTop: 2 },
   scheduleDivider:       { height: 1, backgroundColor: '#f0f0f0' },
   scheduleTimeSlots:     { flexDirection: 'row', padding: 12, gap: 8 },
   scheduleSlot:          { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10, alignItems: 'flex-start' },
-  scheduleSlotTime:      { fontSize: 11, fontWeight: '700', color: '#444', marginBottom: 4 },
-  scheduleSlotEmpty:     { fontSize: 11, color: '#bbb' },
-  scheduleMedLine:       { fontSize: 11, color: '#444', alignSelf: 'stretch', textAlign: 'left', marginTop: 2 },
+  scheduleSlotTime:      { fontSize: 14, fontWeight: '700', color: '#444', marginBottom: 6 },
+  scheduleSlotEmpty:     { fontSize: 13, color: '#bbb' },
+  scheduleMedLine:       { fontSize: 14, color: '#333', alignSelf: 'stretch', textAlign: 'left', marginTop: 4, lineHeight: 20 },
+  scheduleUnscheduled:     { paddingHorizontal: 12, paddingBottom: 12, gap: 4 },
 
   requestCard:       { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderLeftWidth: 4, borderLeftColor: GREEN, marginBottom: 8 },
   requestTitle:      { fontSize: 15, fontWeight: '800', color: '#222' },

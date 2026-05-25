@@ -22,8 +22,10 @@ import {
   registerForPushNotificationsAsync,
   rescheduleMedicationLocalNotifications,
   setupNotifications,
-  presentLocalNotification,
 } from '@/lib/pushNotifications';
+import { logIntelligenceEvent } from '@/api/index';
+import { APP_NAME } from '@/lib/branding';
+import { TEXT } from '@/lib/typography';
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
@@ -180,7 +182,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
             <View style={ms.heroIconWrap}>
               <AppIcon name="medical" size={32} color={GREEN} />
             </View>
-            <Text style={ms.heroKicker}>PillPal</Text>
+            <Text style={ms.heroKicker}>{APP_NAME.toUpperCase()}</Text>
             <Text style={ms.title}>{editingMed ? 'Edit medication' : 'Add medication'}</Text>
             <Text style={ms.heroSub}>Create a reminder your caregiver can see when linked.</Text>
           </View>
@@ -567,8 +569,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   useEffect(() => {
     if (isExpoGo) return;
-    rescheduleMedicationLocalNotifications(medications).catch(() => {});
-  }, [medications, isExpoGo]);
+    rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
+  }, [medications, isExpoGo, uid]);
 
   useEffect(() => {
     setupNotifications().catch(() => {});
@@ -576,15 +578,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     registerForPushNotificationsAsync().then(token => {
       if (token) saveExpoPushToken(uid, token).catch(() => {});
     });
-    let sub: { remove: () => void } | undefined;
-    import('expo-notifications').then(Notifications => {
-      sub = Notifications.addNotificationReceivedListener(n => {
-        const title = n.request.content.title ?? 'PillPal';
-        const body = n.request.content.body ?? '';
-        if (body) presentLocalNotification(title, body);
-      });
-    }).catch(() => {});
-    return () => sub?.remove();
+    logIntelligenceEvent({ firebase_uid: uid, event_type: 'opened_app' }).catch(() => {});
   }, [uid, isExpoGo]);
 
   useEffect(() => {
@@ -727,6 +721,11 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
     try {
       await syncRemote();
+      logIntelligenceEvent({
+        firebase_uid: uid,
+        event_type: newTaken ? 'taken' : 'confirm',
+        medication_id: Number(id),
+      }).catch(() => {});
     } catch (err) {
       await enqueueMutation({
         id: `${id}-${Date.now()}`,
@@ -974,7 +973,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           {patientIncomingReqs.map((lr: any) => (
             <View key={lr.id} style={styles.incomingReqCard}>
               <Text style={styles.incomingReqTitle}>{lr.caretaker_name || lr.caretaker_email}</Text>
-              <Text style={styles.incomingReqSub}>Wants to support you on PillPal</Text>
+              <Text style={styles.incomingReqSub}>Wants to support you on {APP_NAME}</Text>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
                 <TouchableOpacity
                   style={styles.incomingReqAccept}
@@ -1017,7 +1016,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.versionText}>PillPal v1.0.0</Text>
+      <Text style={styles.versionText}>{APP_NAME} v1.0.1</Text>
     </ScrollView>
   );
 
@@ -1115,8 +1114,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingBottom: 14,
   },
-  headerTitle:       { color: '#fff', fontSize: 18, fontWeight: '700' },
-  headerTitleTablet: { fontSize: 20 },
+  headerTitle: { fontSize: TEXT.lg, fontWeight: '700', color: '#fff' },
+  headerTitleTablet: { fontSize: TEXT.xl },
   logoutBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 14, paddingVertical: 8,
@@ -1140,14 +1139,14 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
     alignItems: 'center', justifyContent: 'center',
   },
-  greetingText: { fontSize: 16, fontWeight: '700', color: '#222' },
-  greetingSub:  { fontSize: 13, color: '#666', marginTop: 2 },
+  greetingText: { fontSize: TEXT.lg, fontWeight: '700', color: '#222' },
+  greetingSub:  { fontSize: TEXT.sm, color: '#666', marginTop: 2 },
 
   statsRow: { flexDirection: 'row', gap: 12 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'center' },
   statIcon:  { fontSize: 24, marginBottom: 4 },
-  statNum:   { fontSize: 28, fontWeight: '800', color: '#222' },
-  statLabel: { fontSize: 12, color: '#888', marginTop: 2 },
+  statNum:   { fontSize: TEXT.xxl, fontWeight: '800', color: '#222' },
+  statLabel: { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
 
   actionCard: {
     backgroundColor: GREEN, borderRadius: 16, padding: 16,
@@ -1160,7 +1159,7 @@ const styles = StyleSheet.create({
   arrow:       { color: '#fff', fontSize: 18 },
 
   sectionHeader: { marginBottom: 4 },
-  sectionTitle:  { fontSize: 18, fontWeight: '800', color: '#222' },
+  sectionTitle:  { fontSize: TEXT.lg, fontWeight: '800', color: '#222' },
 
   calendarCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
@@ -1192,11 +1191,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   scheduleTime:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, minWidth: 70, alignItems: 'center' },
-  scheduleTimeText:   { fontSize: 12, fontWeight: '700' },
-  scheduleMedName:    { fontSize: 14, fontWeight: '700', color: '#222' },
-  scheduleMedSub:     { fontSize: 12, color: '#888', marginTop: 2 },
+  scheduleTimeText:   { fontSize: TEXT.sm, fontWeight: '700' },
+  scheduleMedName:    { fontSize: TEXT.md, fontWeight: '700', color: '#222' },
+  scheduleMedSub:     { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
   scheduleBadge:      { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  scheduleBadgeText:  { fontSize: 11, fontWeight: '700' },
+  scheduleBadgeText:  { fontSize: TEXT.xs, fontWeight: '700' },
 
   profileHeader: { alignItems: 'center', paddingVertical: 24 },
   profileAvatar: {
@@ -1230,8 +1229,8 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 10,
     backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center',
   },
-  manageRowLabel: { fontSize: 15, fontWeight: '700', color: '#222' },
-  manageRowSub:   { fontSize: 12, color: '#888', marginTop: 2 },
+  manageRowLabel: { fontSize: TEXT.md, fontWeight: '700', color: '#222' },
+  manageRowSub:   { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
   manageArrow:    { fontSize: 20, color: '#ccc' },
 
   medCountBadge:     { backgroundColor: GREEN_LIGHT, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
@@ -1260,7 +1259,7 @@ const styles = StyleSheet.create({
   },
   tabItem:  { flex: 1, alignItems: 'center' },
   tabIcon:  { fontSize: 22 },
-  tabLabel:       { fontSize: 11, color: '#aaa', marginTop: 2 },
+  tabLabel:       { fontSize: TEXT.sm, color: '#aaa', marginTop: 2 },
   tabLabelActive: { color: GREEN, fontWeight: '700' },
 });
 
@@ -1459,8 +1458,8 @@ const mc = StyleSheet.create({
     width: 40, height: 40, borderRadius: 12, backgroundColor: GREEN_LIGHT,
     alignItems: 'center', justifyContent: 'center', marginRight: 4,
   },
-  headerTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
-  headerSub:   { fontSize: 10, fontWeight: '700', color: '#aaa', letterSpacing: 0.8, marginTop: 1 },
+  headerTitle: { fontSize: TEXT.lg, fontWeight: '800', color: '#1a1a1a' },
+  headerSub:   { fontSize: TEXT.sm, fontWeight: '700', color: '#aaa', letterSpacing: 0.8, marginTop: 1 },
   countBadge:  { backgroundColor: GREEN_LIGHT, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
   countNum:    { fontSize: 18, fontWeight: '900', color: GREEN, lineHeight: 20 },
   countLabel:  { fontSize: 9, fontWeight: '700', color: GREEN, letterSpacing: 0.5 },
@@ -1474,9 +1473,9 @@ const mc = StyleSheet.create({
   medRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
   medRowFirst: { borderTopWidth: 0 },
   medInfo:     { flex: 1 },
-  medName:     { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  medName:     { fontSize: TEXT.md, fontWeight: '700', color: '#1a1a1a' },
   medNameTaken:{ color: '#aaa', textDecorationLine: 'line-through' },
-  medSub:      { fontSize: 12, color: '#888', marginTop: 2 },
+  medSub:      { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
   deleteBtn:   { padding: 4 },
   deleteArrow: { fontSize: 22, color: '#ccc', fontWeight: '300' },
 

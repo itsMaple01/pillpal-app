@@ -43,7 +43,7 @@ export default function LogoutModal({ visible, onConfirm, onCancel }: Props) {
                 <Text style={s.iconEmoji}>💊</Text>
               </View>
               <View style={s.topText}>
-                <Text style={s.brand}>PillPal</Text>
+                <Text style={s.brand}>GabayRa</Text>
                 <Text style={s.title}>Sign out?</Text>
                 <Text style={s.sub}>You will return to the login screen.</Text>
               </View>

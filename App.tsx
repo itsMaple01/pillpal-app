@@ -5,10 +5,12 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '@/lib/firebase';
 import { resolveUserRole } from '@/lib/resolveUserRole';
+import { getCareMode, setCareMode } from '@/lib/careMode';
 import WelcomeScreen from './screens/welcome';
 import LoginScreen from './screens/login';
 import RoleSelectScreen from './screens/role-select';
 import PatientDashboard from './screens/patient-dashboard';
+import FamilyDashboard from './screens/family-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
 import LogoutModal from './components/LogoutModal';
 import OfflineBanner from './components/OfflineBanner';
@@ -16,8 +18,49 @@ import { setupNotifications } from './lib/pushNotifications';
 
 type SignupProfile = { full_name: string; age: number; health_condition: string | null };
 
-type Screen = 'loading' | 'welcome' | 'login' | 'roleSelect' | 'patientDash' | 'caretakerDash';
+type Screen =
+  | 'loading'
+  | 'welcome'
+  | 'login'
+  | 'roleSelect'
+  | 'patientDash'
+  | 'familyDash'
+  | 'caretakerDash';
 type LoginTab = 'login' | 'signup';
+
+async function routeAuthenticatedUser(
+  userId: string,
+  userEmail: string | null,
+  setRole: (r: 'patient' | 'caretaker') => void,
+  setScreen: (s: Screen) => void,
+) {
+  const cachedRole = await AsyncStorage.getItem(`role_${userId}`);
+  if (cachedRole === 'patient') {
+    setRole('patient');
+    setScreen('patientDash');
+    return;
+  }
+  if (cachedRole === 'caretaker') {
+    setRole('caretaker');
+    const mode = await getCareMode(userId);
+    setScreen(mode === 'professional' ? 'caretakerDash' : 'familyDash');
+    return;
+  }
+
+  const dbRole = await resolveUserRole(userId, userEmail);
+  if (dbRole === 'patient' || dbRole === 'caretaker') {
+    setRole(dbRole);
+    await AsyncStorage.setItem(`role_${userId}`, dbRole);
+    if (dbRole === 'patient') {
+      setScreen('patientDash');
+    } else {
+      await setCareMode(userId, 'family');
+      setScreen('familyDash');
+    }
+    return;
+  }
+  setScreen('roleSelect');
+}
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -38,20 +81,7 @@ export default function App() {
         setUid(user.uid);
         setEmail(user.email);
         try {
-          const cachedRole = await AsyncStorage.getItem(`role_${user.uid}`);
-          if (cachedRole === 'patient' || cachedRole === 'caretaker') {
-            setRole(cachedRole);
-            setScreen(cachedRole === 'patient' ? 'patientDash' : 'caretakerDash');
-            return;
-          }
-          const dbRole = await resolveUserRole(user.uid, user.email);
-          if (dbRole) {
-            setRole(dbRole);
-            await AsyncStorage.setItem(`role_${user.uid}`, dbRole);
-            setScreen(dbRole === 'patient' ? 'patientDash' : 'caretakerDash');
-            return;
-          }
-          setScreen('roleSelect');
+          await routeAuthenticatedUser(user.uid, user.email, setRole, setScreen);
         } catch {
           setScreen('roleSelect');
         }
@@ -75,19 +105,8 @@ export default function App() {
     if (!isNewUser) {
       setSignupProfile(null);
       try {
-        const cachedRole = await AsyncStorage.getItem(`role_${userId}`);
-        if (cachedRole === 'patient' || cachedRole === 'caretaker') {
-          setRole(cachedRole);
-          setScreen(cachedRole === 'patient' ? 'patientDash' : 'caretakerDash');
-          return;
-        }
-        const dbRole = await resolveUserRole(userId, userEmail);
-        if (dbRole) {
-          setRole(dbRole);
-          await AsyncStorage.setItem(`role_${userId}`, dbRole);
-          setScreen(dbRole === 'patient' ? 'patientDash' : 'caretakerDash');
-          return;
-        }
+        await routeAuthenticatedUser(userId, userEmail, setRole, setScreen);
+        return;
       } catch {}
     }
 
@@ -99,8 +118,27 @@ export default function App() {
     setSignupProfile(null);
     if (uid) {
       await AsyncStorage.setItem(`role_${uid}`, selectedRole);
+      if (selectedRole === 'caretaker') {
+        await setCareMode(uid, 'family');
+        setScreen('familyDash');
+        return;
+      }
     }
-    setScreen(selectedRole === 'patient' ? 'patientDash' : 'caretakerDash');
+    setScreen(selectedRole === 'patient' ? 'patientDash' : 'familyDash');
+  };
+
+  const switchToCaregiver = async () => {
+    if (uid) {
+      await setCareMode(uid, 'professional');
+      setScreen('caretakerDash');
+    }
+  };
+
+  const switchToFamily = async () => {
+    if (uid) {
+      await setCareMode(uid, 'family');
+      setScreen('familyDash');
+    }
   };
 
   const handleLogout = () => {
@@ -164,8 +202,19 @@ export default function App() {
       {screen === 'patientDash' && (
         <PatientDashboard onLogout={handleLogout} uid={uid!} email={email!} />
       )}
+      {screen === 'familyDash' && (
+        <FamilyDashboard
+          uid={uid!}
+          onLogout={handleLogout}
+          onSwitchToCaregiver={switchToCaregiver}
+        />
+      )}
       {screen === 'caretakerDash' && (
-        <CaretakerDashboard onLogout={handleLogout} uid={uid!} />
+        <CaretakerDashboard
+          onLogout={handleLogout}
+          uid={uid!}
+          onSwitchToFamily={switchToFamily}
+        />
       )}
 
       <LogoutModal

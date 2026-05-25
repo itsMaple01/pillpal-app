@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppIcon from '@/components/AppIcon';
+import { APP_NAME } from '@/lib/branding';
 
 interface Props {
   onGetStarted: () => void;
@@ -34,7 +35,7 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
             <View style={styles.logoBox}>
               <AppIcon name="medical" size={28} color="#fff" />
             </View>
-            <Text style={styles.brand}>PillPal</Text>
+            <Text style={styles.brand}>{APP_NAME}</Text>
           </View>
         </View>
       </View>

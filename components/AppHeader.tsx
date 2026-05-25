@@ -1,5 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import AppIcon from '@/components/AppIcon';
+import { APP_NAME } from '@/lib/branding';
+import { TEXT } from '@/lib/typography';
 
 const GREEN = '#2d7a3a';
 
@@ -19,7 +21,7 @@ export default function AppHeader({ title, subtitle, rightAction, paddingTop = 1
           <AppIcon name="medical" size={22} color={GREEN} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={s.brand}>PillPal</Text>
+          <Text style={s.brand}>{APP_NAME}</Text>
           <Text style={s.title}>{title}</Text>
           {!!subtitle && <Text style={s.sub}>{subtitle}</Text>}
         </View>
@@ -57,19 +59,18 @@ const s = StyleSheet.create({
     borderColor: '#cfe8d4',
   },
   brand: {
-    fontSize: 10,
+    fontSize: TEXT.xs,
     fontWeight: '800',
     color: GREEN,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
+    letterSpacing: 1.2,
   },
-  title: { fontSize: 20, fontWeight: '800', color: '#1a1a1a', marginTop: 2 },
-  sub:   { fontSize: 12, color: '#888', marginTop: 2 },
+  title: { fontSize: TEXT.xl, fontWeight: '800', color: '#1a1a1a', marginTop: 2 },
+  sub:   { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
   actionBtn: {
     backgroundColor: GREEN,
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderRadius: 20,
   },
-  actionText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  actionText: { color: '#fff', fontWeight: '800', fontSize: TEXT.sm },
 });

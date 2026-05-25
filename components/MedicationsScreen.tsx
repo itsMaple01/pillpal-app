@@ -267,11 +267,11 @@ const s = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', gap: 8,
   },
-  medName:      { fontSize: 15, fontWeight: '800', color: '#1a1a1a', flex: 1 },
+  medName:      { fontSize: 17, fontWeight: '800', color: '#1a1a1a', flex: 1 },
   medNameTaken: { color: '#bbb', textDecorationLine: 'line-through' },
 
   badge:     { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
+  badgeText: { fontSize: 13, fontWeight: '700' },
 
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   metaChip: {
@@ -279,7 +279,7 @@ const s = StyleSheet.create({
     backgroundColor: '#f5f5f5', borderRadius: 8,
     paddingHorizontal: 8, paddingVertical: 5,
   },
-  metaChipText: { fontSize: 11, color: '#666', fontWeight: '600' },
+  metaChipText: { fontSize: 13, color: '#666', fontWeight: '600' },
 
   editBtn: {
     alignSelf: 'flex-start',

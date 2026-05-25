@@ -58,7 +58,7 @@ export default function LinkPatientModal({ visible, onClose, caretakerUid, onLin
         <View style={s.iconCircle}>
           <AppIcon name="link" size={28} color="#fff" />
         </View>
-        <Text style={s.heroKicker}>PillPal</Text>
+        <Text style={s.heroKicker}>GabayRa</Text>
         <Text style={s.title}>Link a patient</Text>
         <Text style={s.subtitle}>
           Ask the patient to generate a code (Manage → Link caregiver). Only patients start link requests.
