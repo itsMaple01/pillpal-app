@@ -16,11 +16,14 @@ export function getApiBaseUrl(): string {
   }
 
   if (__DEV__) {
+    const legacy = Constants as typeof Constants & {
+      manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } };
+      manifest?: { debuggerHost?: string };
+    };
     const hostUri =
       Constants.expoConfig?.hostUri ??
-      (Constants as { manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } } }).manifest2?.extra
-        ?.expoGo?.debuggerHost ??
-      Constants.manifest?.debuggerHost;
+      legacy.manifest2?.extra?.expoGo?.debuggerHost ??
+      legacy.manifest?.debuggerHost;
 
     if (hostUri) {
       const host = hostUri.replace(/^https?:\/\//, '').split(':')[0];

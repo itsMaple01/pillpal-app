@@ -6,6 +6,17 @@ export const api = axios.create({
   timeout: 25000,
 });
 
+export const logIntelligenceEvent = (body: {
+  firebase_uid: string;
+  event_type: string;
+  medication_id?: number;
+  scheduled_at?: string;
+  metadata?: Record<string, unknown>;
+}) => api.post('/api/intelligence/events', body);
+
+export const getReminderPlan = (uid: string) =>
+  api.get(`/api/intelligence/reminder-plan/${uid}`);
+
 // Users
 export const syncUser = (data: {
   firebase_uid: string;
@@ -85,37 +96,33 @@ export const setMedicationFirestoreId = (id: number, firestore_id: string) =>
   api.patch(`/api/medications/${id}/firestore-id`, { firestore_id });
 
 export const addMedication = (data: {
-  // Accept either field name so callers don't break
   patient_uid?: string;
   firebase_uid?: string;
   name: string;
   dosage?: string;
   frequency?: string;
-  time?: string;       // ← added: used by PatientDashboard
+  time?: string;
   program?: string;
   start_date?: string;
   end_date?: string;
 }) => {
-  // Normalise: backend expects patient_uid
   const payload = {
     ...data,
     patient_uid: data.patient_uid ?? data.firebase_uid,
   };
-  delete payload.firebase_uid;          // don't send both
+  delete payload.firebase_uid;
   return api.post('/api/medications', payload);
 };
 
 export const deleteMedication = (id: number) =>
   api.delete(`/api/medications/${id}`);
 
-// Doses
 export const getTodayDoses = (patient_uid: string) =>
   api.get(`/api/doses/${patient_uid}/today`);
 
 export const markDoseTaken = (id: number) =>
   api.patch(`/api/doses/${id}/take`);
 
-// Patients (caretaker)
 export const getLinkedPatients = (caretaker_uid: string) =>
   api.get(`/api/patients/${caretaker_uid}`);
 
@@ -123,8 +130,6 @@ export const linkPatient = (data: {
   caretaker_uid: string;
   patient_uid: string;
 }) => api.post('/api/patients/link', data);
-
-// Add this to your api/index.ts
 
 export const getUserByEmail = (email: string) =>
   api.get(`/api/users/by-email/${encodeURIComponent(email)}`);

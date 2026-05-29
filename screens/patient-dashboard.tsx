@@ -3,6 +3,15 @@ import {
   ScrollView, StatusBar, Dimensions,
   Alert, Modal, Platform, Switch, Pressable,
 } from 'react-native';
+import SwipeTabHost from '@/components/SwipeTabHost';
+import WeekCalendarStrip from '@/components/WeekCalendarStrip';
+import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import DeleteMedicationModal from '@/components/DeleteMedicationModal';
+import LogoutModal from '@/components/LogoutModal';
+import { SkeletonMedCard } from '@/components/Skeleton';
+import {
+  isTutorialDone, setTutorialDone, PATIENT_TUTORIAL,
+} from '@/lib/tutorial';
 import { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useCallback, useEffect, useRef } from 'react';
@@ -22,14 +31,18 @@ import {
   registerForPushNotificationsAsync,
   rescheduleMedicationLocalNotifications,
   setupNotifications,
-  presentLocalNotification,
 } from '@/lib/pushNotifications';
+import { logIntelligenceEvent } from '@/api/index';
+import { APP_NAME } from '@/lib/branding';
+import { TEXT } from '@/lib/typography';
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
 import AppIcon, { PATIENT_TAB_ICONS } from '@/components/AppIcon';
 import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
+import NotificationSettingsModal from '@/components/NotificationSettingsModal';
+import PrivacySecurityModal from '@/components/PrivacySecurityModal';
 import StatTile from '@/components/StatTile';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
@@ -180,7 +193,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
             <View style={ms.heroIconWrap}>
               <AppIcon name="medical" size={32} color={GREEN} />
             </View>
-            <Text style={ms.heroKicker}>PillPal</Text>
+            <Text style={ms.heroKicker}>{APP_NAME.toUpperCase()}</Text>
             <Text style={ms.title}>{editingMed ? 'Edit medication' : 'Add medication'}</Text>
             <Text style={ms.heroSub}>Create a reminder your caregiver can see when linked.</Text>
           </View>
@@ -210,7 +223,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
             {/* Dosage */}
             <View style={ms.fieldGroup}>
               <View style={ms.labelRow}>
-                <Text style={ms.labelIcon}>🏷️</Text>
+                <AppIcon name="pricetag-outline" size={16} color={GREEN} />
                 <Text style={ms.label}>DOSAGE</Text>
               </View>
               <TextInput
@@ -258,7 +271,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                 </View>
               )}
               <View style={ms.freqSubRow}>
-                <Text style={ms.freqSubIcon}>📅</Text>
+                <AppIcon name="calendar-outline" size={14} color="#888" />
                 <Text style={ms.freqSub}>{FREQUENCIES[freqIdx].sub}</Text>
               </View>
             </View>
@@ -271,7 +284,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                   onPress={() => setShowEndDate(true)}
                   activeOpacity={0.8}
                 >
-                  <Text style={ms.endDateIcon}>📅</Text>
+                  <AppIcon name="calendar-outline" size={18} color={GREEN} />
                   <Text style={ms.endDateText}>Set end date (optional)</Text>
                 </TouchableOpacity>
               ) : (
@@ -281,14 +294,14 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                     onPress={() => { setShowEndDate(false); setEndDate(null); }}
                     activeOpacity={0.8}
                   >
-                    <Text style={ms.endDateIcon}>📅</Text>
+                    <AppIcon name="calendar-outline" size={18} color={RED} />
                     <Text style={ms.removeEndDateText}>Remove end date</Text>
                   </TouchableOpacity>
 
                   <View style={ms.calBox}>
                     <Text style={ms.calBoxLabel}>REMIND ME UNTIL</Text>
                     <View style={[ms.dateDisplay, !!endDate && ms.dateDisplayActive]}>
-                      <Text style={ms.endDateIcon}>📅</Text>
+                      <AppIcon name="calendar-outline" size={18} color={GREEN} />
                       <Text style={[ms.dateDisplayText, !endDate && { color: '#aaa' }]}>
                         {endDate
                           ? `${MONTHS[endDate.getMonth()]} ${endDate.getDate()}, ${endDate.getFullYear()}`
@@ -458,11 +471,11 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
 interface MedCardProps {
   medications: PatientMedication[];
   onToggleTaken: (id: string) => void;
-  onDelete: (id: string) => void;
+  onEdit: (med: PatientMedication) => void;
   onAddPress: () => void;
 }
 
-function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: MedCardProps) {
+function MedicationsCard({ medications, onToggleTaken, onEdit, onAddPress }: MedCardProps) {
   const pending = medications.filter(m => !m.taken).length;
   const taken   = medications.filter(m =>  m.taken).length;
 
@@ -506,23 +519,24 @@ function MedicationsCard({ medications, onToggleTaken, onDelete, onAddPress }: M
       ) : (
         <View style={mc.list}>
           {medications.map((med, i) => (
-            <View key={med.id} style={[mc.medRow, i === 0 && mc.medRowFirst]}>
-              <Switch
-                value={med.taken}
-                onValueChange={() => onToggleTaken(med.id)}
-                trackColor={{ false: '#f5c842', true: GREEN }}
-                thumbColor="#fff"
-              />
+            <Pressable
+              key={med.id}
+              style={[mc.medRow, i === 0 && mc.medRowFirst]}
+              onPress={() => onEdit(med)}
+            >
               <View style={mc.medInfo}>
                 <Text style={[mc.medName, med.taken && mc.medNameTaken]}>{med.name}</Text>
                 <Text style={mc.medSub}>
                   {med.dosage !== 'As prescribed' ? med.dosage : 'Take as needed'} · {med.time}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => onDelete(med.id)} style={mc.deleteBtn}>
-                <Text style={mc.deleteArrow}>›</Text>
-              </TouchableOpacity>
-            </View>
+              <Switch
+                value={med.taken}
+                onValueChange={() => onToggleTaken(med.id)}
+                trackColor={{ false: '#e8d9a8', true: GREEN }}
+                thumbColor="#fff"
+              />
+            </Pressable>
           ))}
         </View>
       )}
@@ -548,6 +562,14 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [displayName, setDisplayName] = useState('Patient');
   const [showLinkCaretaker, setShowLinkCaretaker] = useState(false);
   const [patientIncomingReqs, setPatientIncomingReqs] = useState<any[]>([]);
+  const [medsLoading, setMedsLoading] = useState(true);
+  const [tutorialIdx, setTutorialIdx] = useState(0);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showPrivacySettings, setShowPrivacySettings] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deletingMed, setDeletingMed] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // ── Ref so callbacks always see current medications without stale closures ──
   const medicationsRef = useRef<PatientMedication[]>([]);
@@ -558,8 +580,27 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   useEffect(() => {
     if (!uid) return;
-    return subscribePatientMedications(uid, setMedications);
+    setMedsLoading(true);
+    return subscribePatientMedications(uid, meds => {
+      setMedications(meds);
+      setMedsLoading(false);
+    });
   }, [uid]);
+
+  useEffect(() => {
+    isTutorialDone('patient', uid).then(done => {
+      if (!done) {
+        setTutorialIdx(0);
+        setShowTutorial(true);
+      }
+    });
+  }, [uid]);
+
+  useEffect(() => {
+    if (!showTutorial) return;
+    const step = PATIENT_TUTORIAL[tutorialIdx];
+    if (step?.tab) setActiveTab(step.tab as PatientTab);
+  }, [showTutorial, tutorialIdx]);
 
   const { isConnected, isInternetReachable } = useNetworkStatus();
   const online = isConnected && isInternetReachable;
@@ -567,8 +608,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   useEffect(() => {
     if (isExpoGo) return;
-    rescheduleMedicationLocalNotifications(medications).catch(() => {});
-  }, [medications, isExpoGo]);
+    rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
+  }, [medications, isExpoGo, uid]);
 
   useEffect(() => {
     setupNotifications().catch(() => {});
@@ -576,15 +617,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     registerForPushNotificationsAsync().then(token => {
       if (token) saveExpoPushToken(uid, token).catch(() => {});
     });
-    let sub: { remove: () => void } | undefined;
-    import('expo-notifications').then(Notifications => {
-      sub = Notifications.addNotificationReceivedListener(n => {
-        const title = n.request.content.title ?? 'PillPal';
-        const body = n.request.content.body ?? '';
-        if (body) presentLocalNotification(title, body);
-      });
-    }).catch(() => {});
-    return () => sub?.remove();
+    logIntelligenceEvent({ firebase_uid: uid, event_type: 'opened_app' }).catch(() => {});
   }, [uid, isExpoGo]);
 
   useEffect(() => {
@@ -727,6 +760,11 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
     try {
       await syncRemote();
+      logIntelligenceEvent({
+        firebase_uid: uid,
+        event_type: newTaken ? 'taken' : 'confirm',
+        medication_id: Number(id),
+      }).catch(() => {});
     } catch (err) {
       await enqueueMutation({
         id: `${id}-${Date.now()}`,
@@ -745,23 +783,31 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   // ── Delete medication ──
   const handleDeleteMed = useCallback((id: string) => {
-    const doDelete = async () => {
-      const med = medicationsRef.current.find(m => m.id === id);
-      setMedications(prev => prev.filter(m => m.id !== id));
-      try { await deleteMedication(Number(id)); } catch (err) { console.error(err); }
-      if (med?.firestoreId) {
-        try { await deleteDoc(doc(db, 'reminders', med.firestoreId)); } catch (err) { console.error(err); }
-      }
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Delete this medication?')) doDelete();
-    } else {
-      Alert.alert('Delete', 'Remove this medication?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ]);
-    }
+    const med = medicationsRef.current.find(m => m.id === id);
+    setDeleteTarget({ id, name: med?.name ?? 'Medication' });
   }, []);
+
+  const confirmDeleteMed = useCallback(async () => {
+    if (!deleteTarget) return;
+    setDeletingMed(true);
+    const { id } = deleteTarget;
+    const med = medicationsRef.current.find(m => m.id === id);
+    setMedications(prev => prev.filter(m => m.id !== id));
+    try {
+      await deleteMedication(Number(id));
+    } catch (err) {
+      console.error(err);
+    }
+    if (med?.firestoreId) {
+      try {
+        await deleteDoc(doc(db, 'reminders', med.firestoreId));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setDeletingMed(false);
+    setDeleteTarget(null);
+  }, [deleteTarget]);
 
   const handleRefill = useCallback(async (id: string) => {
     try {
@@ -808,6 +854,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const HomeScreen = () => (
     <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
       <View style={styles.greetingCard}>
+        <View style={styles.cardAccent} />
         <View style={styles.greetingIconWrap}>
           <AppIcon name="sunny-outline" size={28} color={GREEN} />
         </View>
@@ -822,12 +869,14 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         <StatTile icon="checkmark-circle-outline" value={takenToday} label="Taken today" accent={GREEN} iconBg="#f1f8e9" />
       </View>
 
-      <MedicationsCard
-        medications={medications}
-        onToggleTaken={handleToggleTaken}
-        onDelete={handleDeleteMed}
-        onAddPress={() => { setEditingMed(null); setActiveTab('Medications'); setShowAddModal(true); }}
-      />
+      {medsLoading ? <SkeletonMedCard /> : (
+        <MedicationsCard
+          medications={medications}
+          onToggleTaken={handleToggleTaken}
+          onEdit={m => { setEditingMed(m); setShowAddModal(true); }}
+          onAddPress={() => { setEditingMed(null); setShowAddModal(true); }}
+        />
+      )}
 
       <MenuRow
         icon="medical-outline"
@@ -839,62 +888,22 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     </ScrollView>
   );
 
+  const markedDates = medications.map(() => today.toISOString().slice(0, 10));
+
   // ── CALENDAR SCREEN ──
-  const CalendarScreen = () => {
-    const daysInMonth = getDaysInMonth2(calendarMonth);
-    const firstDay    = getFirstDayOfMonth(calendarMonth);
-    const cells: (number | null)[] = [
-      ...Array.from({ length: firstDay }, (): null => null),
-      ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-    ];
-    const isToday    = (d: number) => d === today.getDate() && calendarMonth.getMonth() === today.getMonth() && calendarMonth.getFullYear() === today.getFullYear();
-    const isSelected = (d: number) => d === selectedDate.getDate() && calendarMonth.getMonth() === selectedDate.getMonth() && calendarMonth.getFullYear() === selectedDate.getFullYear();
-
-    return (
+  const CalendarScreen = () => (
       <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
-        <View style={styles.calendarCard}>
-          <View style={styles.calendarNav}>
-            <TouchableOpacity onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>
-              <Text style={styles.calNavBtn}>‹</Text>
-            </TouchableOpacity>
-            <Text style={styles.calMonthLabel}>{MONTHS[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</Text>
-            <TouchableOpacity onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>
-              <Text style={styles.calNavBtn}>›</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.calDaysRow}>
-            {DAYS.map(d => <Text key={d} style={styles.calDayLabel}>{d}</Text>)}
-          </View>
-          <View style={styles.calGrid}>
-            {cells.map((day, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[
-                  styles.calCell,
-                  day !== null && isToday(day)    ? styles.calCellToday    : undefined,
-                  day !== null && isSelected(day) ? styles.calCellSelected : undefined,
-                ]}
-                onPress={() => { if (day !== null) setSelectedDate(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day)); }}
-                disabled={day === null}
-              >
-                <Text style={[
-                  styles.calCellText,
-                  day !== null && isToday(day)    ? styles.calCellTextToday    : undefined,
-                  day !== null && isSelected(day) ? styles.calCellTextSelected : undefined,
-                ]}>
-                  {day !== null ? String(day) : ''}
-                </Text>
-                {day !== null && medications.length > 0 ? <View style={styles.calDot} /> : null}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+        <WeekCalendarStrip
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          markedDates={markedDates}
+        />
 
-        <View style={styles.sectionHeader}>
+        <View style={[styles.sectionHeader, { marginTop: 16 }]}>
           <Text style={styles.sectionTitle}>
             {selectedDate.toDateString() === today.toDateString()
               ? "Today's"
-              : `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}`} Schedule
+              : `${MONTHS[selectedDate.getMonth()]} ${selectedDate.getDate()}`} schedule
           </Text>
         </View>
 
@@ -927,8 +936,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           ))
         )}
       </ScrollView>
-    );
-  };
+  );
 
   // ── MANAGE SCREEN ──
   const ManageScreen = () => (
@@ -952,7 +960,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         badge={medications.length}
         onPress={() => setActiveTab('Medications')}
       />
-      <MenuRow icon="bar-chart-outline" label="Report" sub={`${takenToday} taken today`} showChevron={false} />
+      <MenuRow
+        icon="bar-chart-outline"
+        label="Report"
+        sub={`${takenToday} taken today`}
+        onPress={() => setActiveTab('Home')}
+      />
       <MenuRow icon="calendar-outline" label="Schedule & calendar" sub="View all reminders" onPress={() => setActiveTab('Calendar')} />
 
       <Text style={styles.manageSection}>Account</Text>
@@ -974,7 +987,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           {patientIncomingReqs.map((lr: any) => (
             <View key={lr.id} style={styles.incomingReqCard}>
               <Text style={styles.incomingReqTitle}>{lr.caretaker_name || lr.caretaker_email}</Text>
-              <Text style={styles.incomingReqSub}>Wants to support you on PillPal</Text>
+              <Text style={styles.incomingReqSub}>Wants to support you on {APP_NAME}</Text>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
                 <TouchableOpacity
                   style={styles.incomingReqAccept}
@@ -1008,16 +1021,37 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         </View>
       )}
 
-      <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alerts" />
-      <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
-      <MenuRow icon="help-circle-outline" label="Help & support" sub="Get help" />
+      <MenuRow
+        icon="notifications-outline"
+        label="Notification settings"
+        sub="Manage alerts"
+        onPress={() => setShowNotificationSettings(true)}
+      />
+      <MenuRow
+        icon="lock-closed-outline"
+        label="Privacy & security"
+        sub="Manage your data"
+        onPress={() => setShowPrivacySettings(true)}
+      />
+      <MenuRow
+        icon="book-outline"
+        label="Show tutorial"
+        sub="Learn what each tab does"
+        onPress={() => { setTutorialIdx(0); setShowTutorial(true); }}
+      />
+      <MenuRow
+        icon="help-circle-outline"
+        label="Help & support"
+        sub="Get help"
+        onPress={() => Alert.alert(APP_NAME, 'For help, contact your caregiver or clinic. Medication data stays on your account until you sign out.')}
+      />
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogoutModal(true)}>
         <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.versionText}>PillPal v1.0.0</Text>
+      <Text style={styles.versionText}>{APP_NAME} v1.0.1</Text>
     </ScrollView>
   );
 
@@ -1056,33 +1090,28 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
               : undefined
         }
         paddingTop={insets.top + 14}
-        rightAction={
-          activeTab === 'Medications'
-            ? { label: '+ Add', onPress: () => { setEditingMed(null); setShowAddModal(true); } }
-            : undefined
-        }
       />
 
-      {renderScreen()}
-
-      <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
-        {TABS.map(tab => (
-          <TouchableOpacity
-            key={tab.label}
-            style={styles.tabItem}
-            onPress={() => setActiveTab(tab.label)}
-          >
-            <AppIcon
-              name={PATIENT_TAB_ICONS[tab.label]}
-              size={22}
-              color={activeTab === tab.label ? GREEN : '#aaa'}
-            />
-            <Text style={[styles.tabLabel, activeTab === tab.label && styles.tabLabelActive]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <SwipeTabHost
+        tabs={TABS.map(t => ({ key: t.label, icon: PATIENT_TAB_ICONS[t.label] }))}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        bottomInset={insets.bottom || 10}
+        iconOnly
+      >
+        <HomeScreen />
+        <CalendarScreen />
+        <MedicationsScreen
+          medications={medications}
+          onToggleTaken={handleToggleTaken}
+          onDelete={handleDeleteMed}
+          onAddPress={() => { setEditingMed(null); setShowAddModal(true); }}
+          onEdit={m => { setEditingMed(m); setShowAddModal(true); }}
+          onRefill={handleRefill}
+          onSuspend={handleSuspendMed}
+        />
+        <ManageScreen />
+      </SwipeTabHost>
 
       <AddMedicationModal
         visible={showAddModal}
@@ -1091,6 +1120,40 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         saving={saving}
         editingMed={editingMed}
         existingMedicationTimes={medications.map(m => m.time).filter(Boolean)}
+      />
+      <NavTutorialOverlay
+        visible={showTutorial}
+        steps={PATIENT_TUTORIAL}
+        index={tutorialIdx}
+        tabs={TABS.map(t => ({ key: t.label, icon: PATIENT_TAB_ICONS[t.label], label: t.label }))}
+        activeTab={activeTab}
+        onSkip={async () => {
+          setShowTutorial(false);
+          await setTutorialDone('patient', uid);
+        }}
+        onNext={async () => {
+          if (tutorialIdx >= PATIENT_TUTORIAL.length - 1) {
+            setShowTutorial(false);
+            await setTutorialDone('patient', uid);
+          } else {
+            setTutorialIdx(i => i + 1);
+          }
+        }}
+      />
+      <DeleteMedicationModal
+        visible={deleteTarget !== null}
+        medicationName={deleteTarget?.name ?? ''}
+        onCancel={() => !deletingMed && setDeleteTarget(null)}
+        onConfirm={confirmDeleteMed}
+        deleting={deletingMed}
+      />
+      <LogoutModal
+        visible={showLogoutModal}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={() => {
+          setShowLogoutModal(false);
+          onLogout();
+        }}
       />
       <LinkCaretakerModal
         visible={showLinkCaretaker}
@@ -1101,6 +1164,19 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         uid={uid}
         email={email}
       />
+      <NotificationSettingsModal
+        visible={showNotificationSettings}
+        onClose={() => setShowNotificationSettings(false)}
+        onPreferenceChange={enabled => {
+          if (enabled) {
+            rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
+          }
+        }}
+      />
+      <PrivacySecurityModal
+        visible={showPrivacySettings}
+        onClose={() => setShowPrivacySettings(false)}
+      />
     </View>
   );
 }
@@ -1109,14 +1185,14 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 // STYLES
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  outer:  { flex: 1, backgroundColor: '#f0f4f0' },
+  outer:  { flex: 1, backgroundColor: '#ffffff' },
   header: {
     backgroundColor: GREEN, flexDirection: 'row',
     justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingBottom: 14,
   },
-  headerTitle:       { color: '#fff', fontSize: 18, fontWeight: '700' },
-  headerTitleTablet: { fontSize: 20 },
+  headerTitle: { fontSize: TEXT.lg, fontWeight: '700', color: '#fff' },
+  headerTitleTablet: { fontSize: TEXT.xl },
   logoutBtn: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     paddingHorizontal: 14, paddingVertical: 8,
@@ -1132,22 +1208,30 @@ const styles = StyleSheet.create({
   greetingCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderLeftWidth: 4, borderLeftColor: GREEN,
+    overflow: 'hidden',
     borderWidth: 1, borderColor: '#eef2ee',
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+  },
+  cardAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: GREEN,
   },
   greetingIconWrap: {
     width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
     alignItems: 'center', justifyContent: 'center',
   },
-  greetingText: { fontSize: 16, fontWeight: '700', color: '#222' },
-  greetingSub:  { fontSize: 13, color: '#666', marginTop: 2 },
+  greetingText: { fontSize: TEXT.lg, fontWeight: '700', color: '#222' },
+  greetingSub:  { fontSize: TEXT.sm, color: '#666', marginTop: 2 },
 
   statsRow: { flexDirection: 'row', gap: 12 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'center' },
   statIcon:  { fontSize: 24, marginBottom: 4 },
-  statNum:   { fontSize: 28, fontWeight: '800', color: '#222' },
-  statLabel: { fontSize: 12, color: '#888', marginTop: 2 },
+  statNum:   { fontSize: TEXT.xxl, fontWeight: '800', color: '#222' },
+  statLabel: { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
 
   actionCard: {
     backgroundColor: GREEN, borderRadius: 16, padding: 16,
@@ -1160,7 +1244,7 @@ const styles = StyleSheet.create({
   arrow:       { color: '#fff', fontSize: 18 },
 
   sectionHeader: { marginBottom: 4 },
-  sectionTitle:  { fontSize: 18, fontWeight: '800', color: '#222' },
+  sectionTitle:  { fontSize: TEXT.lg, fontWeight: '800', color: '#222' },
 
   calendarCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
@@ -1192,11 +1276,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   scheduleTime:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, minWidth: 70, alignItems: 'center' },
-  scheduleTimeText:   { fontSize: 12, fontWeight: '700' },
-  scheduleMedName:    { fontSize: 14, fontWeight: '700', color: '#222' },
-  scheduleMedSub:     { fontSize: 12, color: '#888', marginTop: 2 },
+  scheduleTimeText:   { fontSize: TEXT.sm, fontWeight: '700' },
+  scheduleMedName:    { fontSize: TEXT.md, fontWeight: '700', color: '#222' },
+  scheduleMedSub:     { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
   scheduleBadge:      { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  scheduleBadgeText:  { fontSize: 11, fontWeight: '700' },
+  scheduleBadgeText:  { fontSize: TEXT.xs, fontWeight: '700' },
 
   profileHeader: { alignItems: 'center', paddingVertical: 24 },
   profileAvatar: {
@@ -1230,8 +1314,8 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 10,
     backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center',
   },
-  manageRowLabel: { fontSize: 15, fontWeight: '700', color: '#222' },
-  manageRowSub:   { fontSize: 12, color: '#888', marginTop: 2 },
+  manageRowLabel: { fontSize: TEXT.md, fontWeight: '700', color: '#222' },
+  manageRowSub:   { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
   manageArrow:    { fontSize: 20, color: '#ccc' },
 
   medCountBadge:     { backgroundColor: GREEN_LIGHT, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
@@ -1260,7 +1344,7 @@ const styles = StyleSheet.create({
   },
   tabItem:  { flex: 1, alignItems: 'center' },
   tabIcon:  { fontSize: 22 },
-  tabLabel:       { fontSize: 11, color: '#aaa', marginTop: 2 },
+  tabLabel:       { fontSize: TEXT.sm, color: '#aaa', marginTop: 2 },
   tabLabelActive: { color: GREEN, fontWeight: '700' },
 });
 
@@ -1334,12 +1418,14 @@ const ms = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 15, color: '#222', backgroundColor: '#fafafa',
+    width: '100%',
   },
 
   dropdown: {
     borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#fafafa',
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%',
   },
   dropdownOpen:         { borderColor: GREEN, backgroundColor: GREEN_LIGHT },
   dropdownText:         { fontSize: 15, color: '#222', fontWeight: '500' },
@@ -1459,8 +1545,8 @@ const mc = StyleSheet.create({
     width: 40, height: 40, borderRadius: 12, backgroundColor: GREEN_LIGHT,
     alignItems: 'center', justifyContent: 'center', marginRight: 4,
   },
-  headerTitle: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
-  headerSub:   { fontSize: 10, fontWeight: '700', color: '#aaa', letterSpacing: 0.8, marginTop: 1 },
+  headerTitle: { fontSize: TEXT.lg, fontWeight: '800', color: '#1a1a1a' },
+  headerSub:   { fontSize: TEXT.sm, fontWeight: '700', color: '#aaa', letterSpacing: 0.8, marginTop: 1 },
   countBadge:  { backgroundColor: GREEN_LIGHT, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6, alignItems: 'center' },
   countNum:    { fontSize: 18, fontWeight: '900', color: GREEN, lineHeight: 20 },
   countLabel:  { fontSize: 9, fontWeight: '700', color: GREEN, letterSpacing: 0.5 },
@@ -1471,14 +1557,12 @@ const mc = StyleSheet.create({
   statLabel: { fontSize: 11, fontWeight: '600', marginTop: 1 },
 
   list:        { paddingHorizontal: 16, paddingBottom: 4 },
-  medRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, gap: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
+  medRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 4, gap: 12, borderTopWidth: 1, borderTopColor: '#f5f5f5' },
   medRowFirst: { borderTopWidth: 0 },
-  medInfo:     { flex: 1 },
-  medName:     { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  medInfo:     { flex: 1, minWidth: 0 },
+  medName:     { fontSize: TEXT.md, fontWeight: '700', color: '#1a1a1a' },
   medNameTaken:{ color: '#aaa', textDecorationLine: 'line-through' },
-  medSub:      { fontSize: 12, color: '#888', marginTop: 2 },
-  deleteBtn:   { padding: 4 },
-  deleteArrow: { fontSize: 22, color: '#ccc', fontWeight: '300' },
+  medSub:      { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
 
   empty:       { alignItems: 'center', paddingVertical: 32, gap: 8 },
   emptyIcon:   { fontSize: 36 },

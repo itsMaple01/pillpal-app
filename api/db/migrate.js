@@ -18,6 +18,12 @@ async function runMigrations() {
   await run('medications.suspended', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS suspended BOOLEAN DEFAULT FALSE`);
   await run('medications.notify_enabled', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS notify_enabled BOOLEAN DEFAULT TRUE`);
   await run('medications.updated_at', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+  await run('medications.last_taken_at', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS last_taken_at DATE`);
+
+  await run('users.date_of_birth', `ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE`);
+
+  await run('alerts.patient_name', `ALTER TABLE alerts ADD COLUMN IF NOT EXISTS patient_name VARCHAR(255)`);
+  await run('alerts.medication_name', `ALTER TABLE alerts ADD COLUMN IF NOT EXISTS medication_name VARCHAR(255)`);
 
   await run('link_requests', `
     CREATE TABLE IF NOT EXISTS link_requests (
@@ -33,6 +39,26 @@ async function runMigrations() {
       patient_uid VARCHAR(128) NOT NULL,
       expires_at TIMESTAMP NOT NULL,
       created_at TIMESTAMP DEFAULT NOW()
+    )`);
+
+  await run('intelligence_events', `
+    CREATE TABLE IF NOT EXISTS intelligence_events (
+      id SERIAL PRIMARY KEY,
+      firebase_uid VARCHAR(128) NOT NULL,
+      event_type VARCHAR(32) NOT NULL,
+      medication_id INTEGER,
+      scheduled_at TIMESTAMP,
+      responded_at TIMESTAMP DEFAULT NOW(),
+      metadata JSONB
+    )`);
+
+  await run('intelligence_profiles', `
+    CREATE TABLE IF NOT EXISTS intelligence_profiles (
+      firebase_uid VARCHAR(128) PRIMARY KEY,
+      avg_response_delay_minutes INTEGER DEFAULT 0,
+      preferred_lead_minutes INTEGER DEFAULT 5,
+      cluster_label VARCHAR(32) DEFAULT 'default',
+      updated_at TIMESTAMP DEFAULT NOW()
     )`);
 
   console.log('[migrate] complete');

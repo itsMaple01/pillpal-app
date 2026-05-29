@@ -1,13 +1,22 @@
-import { useState, type ComponentProps } from 'react';
+import { useState, useRef, type ComponentProps } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
   KeyboardAvoidingView, Platform, ScrollView,
+  NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import AppIcon from '@/components/AppIcon';
-import { validateAge, validateEmail } from '@/utils/algorithms/linear';
+import AppLogo from '@/components/AppLogo';
+import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
+import { validateEmail } from '@/utils/algorithms/linear';
+import DateOfBirthField, { ageFromDateOfBirth } from '@/components/DateOfBirthField';
+import { theme } from '@/lib/theme';
 
 interface Props {
   initialTab?: 'login' | 'signup';
@@ -37,7 +46,9 @@ const labelStyles = StyleSheet.create({
 export default function LoginScreen({ initialTab = 'login', onBack, onAuthSuccess }: Props) {
   const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
   const [fullName, setFullName] = useState('');
-  const [age, setAge] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState<string | null>(null);
+  const pagerRef = useRef<ScrollView>(null);
+  const [formWidth, setFormWidth] = useState(0);
   const [healthCondition, setHealthCondition] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,14 +68,18 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
       Alert.alert('Error', 'Please enter your full name');
       return;
     }
-    if (tab === 'signup' && !validateAge(age)) {
-      Alert.alert('Error', 'Please enter a valid age between 1 and 120');
+    if (tab === 'signup' && !dateOfBirth) {
+      Alert.alert('Error', 'Please choose your date of birth');
+      return;
+    }
+    const ageNum = dateOfBirth ? ageFromDateOfBirth(dateOfBirth) : 0;
+    if (tab === 'signup' && (ageNum < 1 || ageNum > 120)) {
+      Alert.alert('Error', 'Please enter a valid date of birth');
       return;
     }
     setLoading(true);
     try {
       if (tab === 'signup') {
-        const ageNum = parseInt(age, 10);
         const result = await createUserWithEmailAndPassword(auth, email, password);
         onAuthSuccess(result.user.uid, result.user.email ?? '', true, {
           full_name: fullName.trim(),
@@ -82,12 +97,49 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
     }
   };
 
+  const goTab = (t: 'login' | 'signup') => {
+    setTab(t);
+    if (formWidth > 0) {
+      pagerRef.current?.scrollTo({ x: t === 'login' ? 0 : formWidth, animated: true });
+    }
+  };
+
+  const onPagerEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (formWidth <= 0) return;
+    const i = Math.round(e.nativeEvent.contentOffset.x / formWidth);
+    setTab(i === 0 ? 'login' : 'signup');
+  };
+
+  const handleForgotPassword = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || !validateEmail(trimmed)) {
+      Alert.alert(
+        'Reset password',
+        'Enter the email address for your account in the Email field, then tap Forgot password again.',
+      );
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, trimmed);
+      Alert.alert(
+        'Check your email',
+        `We sent a password reset link to ${trimmed}. Open the link to choose a new password.`,
+      );
+    } catch (error: any) {
+      Alert.alert('Could not send reset email', error?.message ?? 'Please try again.');
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.outer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
 
         <View style={styles.circleTopLeft} />
         <View style={styles.circleBottomRight} />
@@ -99,11 +151,9 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
         )}
 
         <View style={styles.header}>
-          <View style={styles.logoBox}>
-            <AppIcon name="medical" size={44} color="#fff" />
-          </View>
-          <Text style={styles.appName}>PillPal</Text>
-          <Text style={styles.tagline}>Your Medication Companion</Text>
+          <AppLogo size={72} style={{ marginBottom: 12 }} />
+          <Text style={styles.appName}>{APP_NAME}</Text>
+          <Text style={styles.tagline}>{APP_TAGLINE}</Text>
         </View>
 
         <View style={styles.card}>
@@ -111,96 +161,127 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
           <View style={styles.tabRow}>
             <TouchableOpacity
               style={[styles.tab, tab === 'login' && styles.tabActive]}
-              onPress={() => setTab('login')}
+              onPress={() => goTab('login')}
             >
               <Text style={[styles.tabText, tab === 'login' && styles.tabTextActive]}>Login</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tab, tab === 'signup' && styles.tabActive]}
-              onPress={() => setTab('signup')}
+              onPress={() => goTab('signup')}
             >
               <Text style={[styles.tabText, tab === 'signup' && styles.tabTextActive]}>Sign Up</Text>
             </TouchableOpacity>
           </View>
 
-          {tab === 'signup' && (
-            <>
-              <View style={styles.fieldGroup}>
-                <FieldLabel icon="person-outline" text="Full Name" />
+          <View
+            style={styles.formPagerWrap}
+            onLayout={e => setFormWidth(e.nativeEvent.layout.width)}
+          >
+          <ScrollView
+            ref={pagerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onPagerEnd}
+            style={{ width: formWidth || '100%' }}
+            scrollEnabled={formWidth > 0}
+          >
+            <View style={{ width: formWidth || 1, gap: 0 }}>
+              <View style={styles.fieldGroupTight}>
+                <FieldLabel icon="mail-outline" text="Email" />
                 <TextInput
                   style={styles.input}
-                  placeholder="Enter your full name"
+                  placeholder="you@example.com"
+                  placeholderTextColor="#aaa"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+              </View>
+              <View style={styles.fieldGroup}>
+                <FieldLabel icon="lock-closed-outline" text="Password" />
+                <View style={styles.passwordWrap}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor="#aaa"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword}>
+                <Text style={styles.forgotText}>Forgot password?</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ width: formWidth || 1 }}>
+              <View style={styles.fieldGroupTight}>
+                <FieldLabel icon="person-outline" text="Full name" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Maria Santos"
                   placeholderTextColor="#aaa"
                   value={fullName}
                   onChangeText={setFullName}
                 />
               </View>
+              <DateOfBirthField value={dateOfBirth} onChange={setDateOfBirth} />
               <View style={styles.fieldGroup}>
-                <FieldLabel icon="calendar-outline" text="Age" />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Your age (required)"
-                  placeholderTextColor="#aaa"
-                  value={age}
-                  onChangeText={setAge}
-                  keyboardType="number-pad"
-                />
-              </View>
-              <View style={styles.fieldGroup}>
-                <FieldLabel icon="heart-outline" text="Current condition (optional)" />
+                <FieldLabel icon="heart-outline" text="Health note (optional)" />
                 <TextInput
                   style={[styles.input, { minHeight: 72, textAlignVertical: 'top' }]}
-                  placeholder="e.g. hypertension — skip if you prefer not to say"
+                  placeholder="e.g. hypertension"
                   placeholderTextColor="#aaa"
                   value={healthCondition}
                   onChangeText={setHealthCondition}
                   multiline
                 />
               </View>
-            </>
-          )}
-          <View style={styles.fieldGroup}>
-            <FieldLabel icon="mail-outline" text="Email" />
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email"
-              placeholderTextColor="#aaa"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <FieldLabel icon="lock-closed-outline" text="Password" />
-            <View style={styles.passwordRow}>
-              <TextInput
-                style={[styles.input, styles.passwordInput]}
-                placeholder="Enter your password"
-                placeholderTextColor="#aaa"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-              />
-              <TouchableOpacity
-                style={styles.eyeBtn}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <AppIcon
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#888"
+              <View style={styles.fieldGroupTight}>
+                <FieldLabel icon="mail-outline" text="Email" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#aaa"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
                 />
-              </TouchableOpacity>
+              </View>
+              <View style={styles.fieldGroup}>
+                <FieldLabel icon="lock-closed-outline" text="Password" />
+                <View style={styles.passwordWrap}>
+                  <TextInput
+                    style={[styles.input, styles.passwordInput]}
+                    placeholder="At least 6 characters"
+                    placeholderTextColor="#aaa"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
+          </ScrollView>
           </View>
-
-          {tab === 'login' && (
-            <TouchableOpacity style={styles.forgotBtn}>
-              <Text style={styles.forgotText}>Forgot password?</Text>
-            </TouchableOpacity>
-          )}
 
           <TouchableOpacity style={styles.submitBtn} onPress={handleAuth} disabled={loading}>
             {loading ? (
@@ -212,7 +293,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setTab(tab === 'login' ? 'signup' : 'login')}>
+          <TouchableOpacity onPress={() => goTab(tab === 'login' ? 'signup' : 'login')}>
             <Text style={styles.toggleText}>
               {tab === 'login' ? "Don't have an account? " : 'Already have an account? '}
               <Text style={styles.toggleLink}>
@@ -276,15 +357,24 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 15, color: '#888', fontWeight: '500' },
   tabTextActive: { color: GREEN, fontWeight: '700' },
-  fieldGroup: { marginBottom: 16 },
+  fieldGroup: { marginBottom: 24 },
+  fieldGroupTight: { marginBottom: 12 },
   input: {
     backgroundColor: '#f7f7f7', borderRadius: 12,
     padding: 14, fontSize: 15, color: '#222',
     borderWidth: 1, borderColor: '#eee', width: '100%',
   },
-  passwordRow: { flexDirection: 'row', alignItems: 'center' },
-  passwordInput: { flex: 1 },
-  eyeBtn: { position: 'absolute', right: 12 },
+  formPagerWrap: { width: '100%', overflow: 'hidden' },
+  passwordWrap: { position: 'relative', width: '100%' },
+  passwordInput: { paddingRight: 48 },
+  eyeBtn: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
   forgotBtn: { alignSelf: 'flex-end', marginBottom: 20, marginTop: -8 },
   forgotText: { color: GREEN, fontSize: 13, fontWeight: '500' },
   submitBtn: {

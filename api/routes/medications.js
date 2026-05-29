@@ -14,12 +14,18 @@ async function bumpPatientActivity(patientUid, type = 'medication_update') {
   }
 }
 
-// GET all medications for a patient
+// GET all medications for a patient (resets "taken" when last taken was before today)
 router.get('/:patient_uid', async (req, res) => {
   try {
+    await pool.query(
+      `UPDATE medications SET taken = FALSE
+       WHERE patient_uid = $1 AND taken = TRUE
+         AND (last_taken_at IS NULL OR last_taken_at < CURRENT_DATE)`,
+      [req.params.patient_uid],
+    );
     const result = await pool.query(
       'SELECT * FROM medications WHERE patient_uid = $1 ORDER BY created_at DESC',
-      [req.params.patient_uid]
+      [req.params.patient_uid],
     );
     res.json(result.rows);
   } catch (err) {
@@ -75,8 +81,10 @@ router.patch('/:id/taken', async (req, res) => {
   }
   try {
     const result = await pool.query(
-      'UPDATE medications SET taken = $1 WHERE id = $2 RETURNING *',
-      [taken, req.params.id]
+      `UPDATE medications SET taken = $1,
+        last_taken_at = CASE WHEN $1 = TRUE THEN CURRENT_DATE ELSE NULL END
+       WHERE id = $2 RETURNING *`,
+      [taken, req.params.id],
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Medication not found' });
     const row = result.rows[0];

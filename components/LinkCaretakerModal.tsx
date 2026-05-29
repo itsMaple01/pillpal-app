@@ -5,6 +5,7 @@ import {
 import { useState } from 'react';
 import { createLinkRequest, generatePatientLinkCode } from '@/api/index';
 import AppIcon from '@/components/AppIcon';
+import AppLogo from '@/components/AppLogo';
 import CenteredModal from '@/components/CenteredModal';
 
 const GREEN       = '#2d7a3a';
@@ -43,7 +44,7 @@ export default function LinkCaretakerModal({ visible, onClose, uid, email }: Pro
 
   const shareCode = async () => {
     if (!code) return;
-    const message = `Link with me on PillPal.\n\nMy code: ${code}\n(Valid 24 hours)\n\nOr use my email: ${email}`;
+    const message = `Link with me on GabayRa.\n\nMy code: ${code}\n(Valid 24 hours)\n\nOr use my email: ${email}`;
     try {
       if (Platform.OS === 'web') {
         await navigator.clipboard.writeText(message);
@@ -79,10 +80,8 @@ export default function LinkCaretakerModal({ visible, onClose, uid, email }: Pro
   return (
     <CenteredModal visible={visible} onClose={onClose}>
       <View style={s.hero}>
-        <View style={s.iconCircle}>
-          <AppIcon name="people" size={28} color="#fff" />
-        </View>
-        <Text style={s.heroKicker}>PillPal</Text>
+        <AppLogo size={52} />
+        <Text style={s.heroKicker}>GabayRa</Text>
         <Text style={s.title}>Link caregiver / family</Text>
         <Text style={s.subtitle}>Share a code or send a request to their email.</Text>
       </View>

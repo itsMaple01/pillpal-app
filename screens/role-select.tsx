@@ -9,6 +9,7 @@ import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { syncUser } from '@/api/index';
 import AppIcon from '@/components/AppIcon';
+import { APP_NAME } from '@/lib/branding';
 
 interface Props {
   uid: string;
@@ -78,7 +79,7 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
                 <AppIcon name="medical" size={36} color="#fff" />
               </View>
             )}
-            {isTablet && <Text style={styles.appName}>PillPal</Text>}
+            {isTablet && <Text style={styles.appName}>{APP_NAME}</Text>}
             <Text style={styles.title}>Who are you?</Text>
             <Text style={styles.subtitle}>Choose your account type to continue</Text>
           </View>
@@ -108,9 +109,9 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
               <View style={[styles.iconCircle, { backgroundColor: '#e8f5e9' }]}>
                 <AppIcon name="people" size={32} color={GREEN_DARK} />
               </View>
-              <Text style={[styles.cardTitle, { color: GREEN_DARK }]}>Caregiver/Family</Text>
+              <Text style={[styles.cardTitle, { color: GREEN_DARK }]}>Family / Caregiver</Text>
               <Text style={[styles.cardDescLight, { color: '#555' }]}>
-                Monitor linked patients, track compliance, and manage medication schedules.
+                Support a few loved ones at home. Switch to the full caregiver dashboard anytime in Settings.
               </Text>
               <TouchableOpacity
                 style={[styles.selectBtn, { backgroundColor: GREEN }]}
@@ -119,7 +120,7 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
               >
                 {loading === 'caretaker'
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.selectBtnText}>Select as Caregiver/Family →</Text>
+                  : <Text style={styles.selectBtnText}>Select as Family / Caregiver →</Text>
                 }
               </TouchableOpacity>
             </View>

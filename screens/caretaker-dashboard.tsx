@@ -25,6 +25,14 @@ import PatientSearchBar from '@/components/PatientSearchBar';
 import AppIcon, { TAB_ICONS } from '@/components/AppIcon';
 import MenuRow from '@/components/MenuRow';
 import StatTile from '@/components/StatTile';
+import SwipeTabHost from '@/components/SwipeTabHost';
+import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import LogoutModal from '@/components/LogoutModal';
+import AppLogo from '@/components/AppLogo';
+import { SkeletonPatientRow } from '@/components/Skeleton';
+import {
+  isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
+} from '@/lib/tutorial';
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -33,13 +41,14 @@ type IonName = ComponentProps<typeof Ionicons>['name'];
 interface Props {
   onLogout: () => void;
   uid: string;
+  onSwitchToFamily?: () => void;
 }
 
 const GREEN       = '#2d7a3a';
 const GREEN_DARK  = '#1e5c28';
 const GREEN_LIGHT = '#e8f5e9';
 
-type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Alerts' | 'Manage';
+type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Manage';
 
 const FILTERS = ['All', 'Active', 'Inactive', 'Missed Doses', 'Needs Attention'];
 
@@ -74,11 +83,10 @@ const SIDE_TABS: { icon: IonName; label: CaretakerTab }[] = [
   { icon: TAB_ICONS.Patients, label: 'Patients' },
   { icon: TAB_ICONS.Schedule, label: 'Schedule' },
   { icon: TAB_ICONS.Medications, label: 'Medications' },
-  { icon: TAB_ICONS.Alerts, label: 'Alerts' },
   { icon: TAB_ICONS.Manage, label: 'Manage' },
 ];
 
-export default function CaretakerDashboard({ onLogout, uid }: Props) {
+export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: Props) {
   const insets   = useSafeAreaInsets();
   const { width }= Dimensions.get('window');
   const isTablet = width >= 768;
@@ -102,6 +110,10 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
   const [editName,          setEditName]           = useState('');
   const [editAge,           setEditAge]            = useState('');
   const [editCondition,     setEditCondition]      = useState('');
+  const [medsShowAlerts,    setMedsShowAlerts]     = useState(false);
+  const [showTutorial,      setShowTutorial]       = useState(false);
+  const [tutorialIdx,       setTutorialIdx]        = useState(0);
+  const [showLogoutModal,   setShowLogoutModal]    = useState(false);
 
   const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
@@ -151,7 +163,19 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     registerForPushNotificationsAsync().then(token => {
       if (token) saveExpoPushToken(uid, token).catch(() => {});
     });
+    isTutorialDone('caregiver', uid).then(done => {
+      if (!done) {
+        setTutorialIdx(0);
+        setShowTutorial(true);
+      }
+    });
   }, [uid]);
+
+  useEffect(() => {
+    if (!showTutorial) return;
+    const step = CAREGIVER_TUTORIAL[tutorialIdx];
+    if (step?.tab) setActiveTab(step.tab as CaretakerTab);
+  }, [showTutorial, tutorialIdx]);
 
   const handleSendReminder = useCallback(async (patient: Patient) => {
     try {
@@ -164,12 +188,13 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       const pushErr = res.data?.push_error;
       const msg = pushSent
         ? `Reminder sent to ${patient.full_name ?? patient.email}. They should get a notification with sound.`
-        : `Reminder saved. ${pushErr || 'Patient must open the installed PillPal app once to enable push notifications.'}`;
+        : `Reminder saved. ${pushErr || 'Patient must open the installed GabayRa app once to enable push notifications.'}`;
       if (Platform.OS === 'web') window.alert(msg);
       else Alert.alert(pushSent ? 'Reminder sent' : 'Reminder recorded', msg);
-    } catch {
-      if (Platform.OS === 'web') window.alert('Could not send reminder. Check your connection.');
-      else Alert.alert('Error', 'Could not send reminder. Check your connection.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? err?.message ?? 'Could not send reminder.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Could not send reminder', String(msg));
     }
   }, [uid]);
 
@@ -269,7 +294,12 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         sub="Browse meds by patient"
         onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
       />
-      <MenuRow icon="notifications-outline" label="Check alerts" sub="See who needs follow-up" onPress={() => setActiveTab('Alerts')} />
+      <MenuRow
+        icon="notifications-outline"
+        label="Check alerts"
+        sub="See who needs follow-up"
+        onPress={() => { setMedsShowAlerts(true); setActiveTab('Medications'); }}
+      />
 
       <View style={styles.homeTipCard}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -354,13 +384,15 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                 style={styles.actionBtnGreen}
                 onPress={() => loadPatientMedications(patient)}
               >
-                <Text style={styles.actionBtnText}>💊 View Medications</Text>
+                <AppIcon name="medical-outline" size={18} color="#fff" />
+                <Text style={styles.actionBtnText}>View medications</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionBtnOutline}
                 onPress={() => setActiveTab('Schedule')}
               >
-                <Text style={styles.actionBtnOutlineText}>📋 Schedule</Text>
+                <AppIcon name="calendar-outline" size={18} color={GREEN} />
+                <Text style={styles.actionBtnOutlineText}>Schedule</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity
@@ -372,12 +404,14 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                 setEditCondition((patient.health_condition || '').trim());
               }}
             >
-              <Text style={styles.actionBtnOutlineText}>✏️ Edit patient info</Text>
+              <AppIcon name="create-outline" size={18} color={GREEN} />
+              <Text style={styles.actionBtnOutlineText}>Edit patient info</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtnOutline, { marginTop: 8 }]}
               onPress={() => handleSendReminder(patient)}
             >
+              <AppIcon name="notifications-outline" size={18} color={GREEN} />
               <Text style={styles.actionBtnOutlineText}>Send reminder</Text>
             </TouchableOpacity>
           </View>
@@ -496,6 +530,17 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
 
   // ── MEDICATIONS SCREEN ──
   const MedicationsTab = () => {
+    if (medsShowAlerts) {
+      return (
+        <View style={{ flex: 1 }}>
+          <TouchableOpacity style={ct.backBtn} onPress={() => setMedsShowAlerts(false)}>
+            <Text style={ct.backBtnText}>← Back to medications</Text>
+          </TouchableOpacity>
+          {renderAlertsTab()}
+        </View>
+      );
+    }
+
     // Patient selected — show their meds
     if (selectedPatient) {
       return (
@@ -531,10 +576,14 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       >
         {/* Header banner */}
         <View style={ct.medsHeader}>
-          <Text style={ct.medsHeaderTitle}>💊 Patient Medications</Text>
-          <Text style={ct.medsHeaderSub}>
-            Select a patient to view their current medications
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={ct.medsHeaderTitle}>Patient medications</Text>
+            <Text style={ct.medsHeaderSub}>Select a patient · Alerts live here too</Text>
+          </View>
+          <TouchableOpacity style={ct.alertsChip} onPress={() => setMedsShowAlerts(true)}>
+            <AppIcon name="notifications-outline" size={18} color="#fff" />
+            <Text style={ct.alertsChipText}>Alerts</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Summary stats */}
@@ -556,8 +605,9 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         <Text style={ct.pickerSectionTitle}>SELECT A PATIENT</Text>
 
         {loading ? (
-          <View style={ct.loadingWrap}>
-            <ActivityIndicator size="large" color={GREEN} />
+          <View style={{ gap: 10 }}>
+            <SkeletonPatientRow />
+            <SkeletonPatientRow />
           </View>
         ) : patients.length === 0 ? (
           <View style={ct.emptyCard}>
@@ -593,7 +643,6 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                   <Text style={[ct.compBadgeText, { color: statusColor.text }]}>{status}</Text>
                 </View>
 
-                <Text style={ct.chevron}>›</Text>
               </TouchableOpacity>
             );
           })
@@ -649,8 +698,8 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                       <Text style={styles.scheduleSlotEmpty}>No meds</Text>
                     ) : (
                       meds.map(m => (
-                        <Text key={m.id} style={styles.scheduleMedLine} numberOfLines={2}>
-                          {m.taken ? '✓ ' : '○ '}{m.name} · {m.time}
+                        <Text key={m.id} style={styles.scheduleMedLine} numberOfLines={3}>
+                          {m.taken ? '✓ ' : '○ '}{m.name} · {m.time || 'No time'}
                         </Text>
                       ))
                     )}
@@ -658,6 +707,22 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
                 );
               })}
             </View>
+            {(() => {
+              const unscheduled = (scheduleByPatient[p.firebase_uid] || []).filter(
+                m => !m.suspended && medicationTimeBucket(m.time) === null,
+              );
+              if (unscheduled.length === 0) return null;
+              return (
+                <View style={styles.scheduleUnscheduled}>
+                  <Text style={styles.scheduleSlotTime}>Unscheduled time</Text>
+                  {unscheduled.map(m => (
+                    <Text key={m.id} style={styles.scheduleMedLine}>
+                      {m.taken ? '✓ ' : '○ '}{m.name} · {m.time || '—'}
+                    </Text>
+                  ))}
+                </View>
+              );
+            })()}
           </View>
         ))
       )}
@@ -756,16 +821,52 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
       />
 
-      <Text style={styles.manageSection}>Settings</Text>
-      <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alert preferences" />
-      <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
-      <MenuRow icon="help-circle-outline" label="Help & support" sub="Get assistance" />
+      <MenuRow
+        icon="link-outline"
+        label="Link patient / family"
+        sub="Redeem code or review patient requests"
+        onPress={() => setShowLinkModal(true)}
+      />
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
+      <Text style={styles.manageSection}>Settings</Text>
+      {onSwitchToFamily && (
+        <MenuRow
+          icon="home-outline"
+          label="Switch to Family view"
+          sub="Simpler home for supporting a few loved ones"
+          onPress={onSwitchToFamily}
+        />
+      )}
+      <MenuRow
+        icon="notifications-outline"
+        label="Notification settings"
+        sub="Alert thresholds and reminder defaults"
+        onPress={() => showAlert('Notifications', 'Configure push and in-app alerts in a future update. Reminders use your intelligence profile today.')}
+      />
+      <MenuRow
+        icon="lock-closed-outline"
+        label="Privacy & security"
+        sub="Data and account controls"
+        onPress={() => showAlert('Privacy', 'Your data is stored securely on Neon and Firebase. Contact support to export or delete your account.')}
+      />
+      <MenuRow
+        icon="help-circle-outline"
+        label="Help & support"
+        sub="Guides and contact"
+        onPress={() => showAlert('Help', 'Swipe bottom icons to move between sections. Use Medications → Alerts for patient warnings.')}
+      />
+
+      <MenuRow
+        icon="book-outline"
+        label="Show tutorial"
+        sub="Learn what each tab does"
+        onPress={() => { setTutorialIdx(0); setShowTutorial(true); }}
+      />
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogoutModal(true)}>
         <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
-      <Text style={styles.versionText}>PillPal v1.0.0</Text>
+      <Text style={styles.versionText}>GabayRa v1.0.1</Text>
     </ScrollView>
   );
 
@@ -775,7 +876,6 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       case 'Patients':    return renderPatientsTab();
       case 'Schedule':    return renderScheduleTab();
       case 'Medications': return <MedicationsTab />;
-      case 'Alerts':      return renderAlertsTab();
       case 'Manage':      return renderManageTab();
     }
   };
@@ -785,15 +885,13 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
     Patients:    'Caregiver/Family Dashboard',
     Schedule:    'Schedules',
     Medications: 'Medications',
-    Alerts:      'Alerts',
     Manage:      'Manage',
   };
   const screenSubs: Record<CaretakerTab, string> = {
     Home:        'Welcome back!',
     Patients:    "Good day! Here's your patient overview.",
-    Schedule:    'View all patient medication schedules.',
-    Medications: 'View medications for each patient.',
-    Alerts:      'Patients that need your attention.',
+    Schedule:    'All linked patients — full day view.',
+    Medications: 'Meds and alerts for each patient.',
     Manage:      'Your account and settings.',
   };
 
@@ -874,8 +972,8 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         <StatusBar barStyle="dark-content" backgroundColor="#dce3dc" translucent={false} />
         <View style={styles.sidebarPanel}>
           <View style={styles.sidebarLogo}>
-            <AppIcon name="medical" size={26} color="#fff" />
-            <Text style={styles.sidebarLogoText}>PillPal</Text>
+            <AppLogo size={40} />
+            <Text style={styles.sidebarLogoText}>GabayRa</Text>
           </View>
           <View style={styles.sidebarNav}>
             {SIDE_TABS.map(tab => (
@@ -912,6 +1010,33 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
           onLinked={() => { fetchPatients(false); fetchLinkRequests(); }}
         />
         {editPatientModal}
+        <NavTutorialOverlay
+          visible={showTutorial}
+          steps={CAREGIVER_TUTORIAL}
+          index={tutorialIdx}
+          tabs={SIDE_TABS.map(t => ({ key: t.label, icon: t.icon, label: t.label }))}
+          activeTab={activeTab}
+          onSkip={async () => {
+            setShowTutorial(false);
+            await setTutorialDone('caregiver', uid);
+          }}
+          onNext={async () => {
+            if (tutorialIdx >= CAREGIVER_TUTORIAL.length - 1) {
+              setShowTutorial(false);
+              await setTutorialDone('caregiver', uid);
+            } else {
+              setTutorialIdx(i => i + 1);
+            }
+          }}
+        />
+        <LogoutModal
+          visible={showLogoutModal}
+          onCancel={() => setShowLogoutModal(false)}
+          onConfirm={() => {
+            setShowLogoutModal(false);
+            onLogout();
+          }}
+        />
       </>
     );
   }
@@ -926,22 +1051,19 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
         <Text style={styles.contentSub}>{screenSubs[activeTab]}</Text>
       </View>
 
-      {renderScreen()}
-
-      <View style={[styles.tabBar, { paddingBottom: insets.bottom || 10 }]}>
-        {SIDE_TABS.map(tab => (
-          <TouchableOpacity key={tab.label} style={styles.tabItem} onPress={() => setActiveTab(tab.label)}>
-            <AppIcon
-              name={tab.icon}
-              size={22}
-              color={activeTab === tab.label ? GREEN : '#aaa'}
-            />
-            <Text style={[styles.tabLabel, activeTab === tab.label && { color: GREEN, fontWeight: '700' }]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <SwipeTabHost
+        tabs={SIDE_TABS.map(t => ({ key: t.label, icon: t.icon }))}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        bottomInset={insets.bottom || 10}
+        iconOnly
+      >
+        {renderHomeTab()}
+        {renderPatientsTab()}
+        {renderScheduleTab()}
+        <MedicationsTab />
+        {renderManageTab()}
+      </SwipeTabHost>
     </View>
     <LinkPatientModal
       visible={showLinkModal}
@@ -950,6 +1072,33 @@ export default function CaretakerDashboard({ onLogout, uid }: Props) {
       onLinked={() => { fetchPatients(false); fetchLinkRequests(); }}
     />
     {editPatientModal}
+    <NavTutorialOverlay
+      visible={showTutorial}
+      steps={CAREGIVER_TUTORIAL}
+      index={tutorialIdx}
+      tabs={SIDE_TABS.map(t => ({ key: t.label, icon: t.icon, label: t.label }))}
+      activeTab={activeTab}
+      onSkip={async () => {
+        setShowTutorial(false);
+        await setTutorialDone('caregiver', uid);
+      }}
+      onNext={async () => {
+        if (tutorialIdx >= CAREGIVER_TUTORIAL.length - 1) {
+          setShowTutorial(false);
+          await setTutorialDone('caregiver', uid);
+        } else {
+          setTutorialIdx(i => i + 1);
+        }
+      }}
+    />
+    <LogoutModal
+      visible={showLogoutModal}
+      onCancel={() => setShowLogoutModal(false)}
+      onConfirm={() => {
+        setShowLogoutModal(false);
+        onLogout();
+      }}
+    />
     </>
   );
 }
@@ -971,9 +1120,15 @@ const ct = StyleSheet.create({
 
   medsHeader: {
     backgroundColor: GREEN, borderRadius: 18, padding: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
   },
   medsHeaderTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
   medsHeaderSub:   { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 4 },
+  alertsChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+  },
+  alertsChipText: { color: '#fff', fontWeight: '800', fontSize: 13 },
 
   summaryRow:  { flexDirection: 'row', gap: 10 },
   summaryCard: { flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
@@ -1008,7 +1163,7 @@ const ct = StyleSheet.create({
 // MAIN STYLES
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  outer: { flex: 1, backgroundColor: '#f0f4f0' },
+  outer: { flex: 1, backgroundColor: '#ffffff' },
 
   tabletShell: {
     flex: 1,
@@ -1189,9 +1344,29 @@ const styles = StyleSheet.create({
   expandedStatLabel: { fontSize: 10, color: '#888', marginTop: 2, textAlign: 'center' },
   expandedActions:   { flexDirection: 'row', gap: 10 },
 
-  actionBtnGreen:   { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  actionBtnGreen: {
+    flex: 1,
+    backgroundColor: GREEN,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
   actionBtnText:    { color: '#fff', fontWeight: '700', fontSize: 13 },
-  actionBtnOutline: { flex: 1, borderWidth: 1.5, borderColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  actionBtnOutline: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: GREEN,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#fff',
+  },
   actionBtnOutlineText: { color: GREEN, fontWeight: '700', fontSize: 13 },
 
   emptyState: { alignItems: 'center', paddingVertical: 40 },
@@ -1205,14 +1380,15 @@ const styles = StyleSheet.create({
   schedulePatientHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   scheduleAvatar:        { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
   scheduleAvatarText:    { fontSize: 14, fontWeight: '800', color: GREEN },
-  schedulePatientName:   { fontSize: 14, fontWeight: '700', color: '#222' },
-  schedulePatientSub:    { fontSize: 12, color: '#888', marginTop: 2 },
+  schedulePatientName:   { fontSize: 17, fontWeight: '700', color: '#222' },
+  schedulePatientSub:    { fontSize: 14, color: '#888', marginTop: 2 },
   scheduleDivider:       { height: 1, backgroundColor: '#f0f0f0' },
   scheduleTimeSlots:     { flexDirection: 'row', padding: 12, gap: 8 },
   scheduleSlot:          { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10, alignItems: 'flex-start' },
-  scheduleSlotTime:      { fontSize: 11, fontWeight: '700', color: '#444', marginBottom: 4 },
-  scheduleSlotEmpty:     { fontSize: 11, color: '#bbb' },
-  scheduleMedLine:       { fontSize: 11, color: '#444', alignSelf: 'stretch', textAlign: 'left', marginTop: 2 },
+  scheduleSlotTime:      { fontSize: 14, fontWeight: '700', color: '#444', marginBottom: 6 },
+  scheduleSlotEmpty:     { fontSize: 13, color: '#bbb' },
+  scheduleMedLine:       { fontSize: 14, color: '#333', alignSelf: 'stretch', textAlign: 'left', marginTop: 4, lineHeight: 20 },
+  scheduleUnscheduled:     { paddingHorizontal: 12, paddingBottom: 12, gap: 4 },
 
   requestCard:       { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderLeftWidth: 4, borderLeftColor: GREEN, marginBottom: 8 },
   requestTitle:      { fontSize: 15, fontWeight: '800', color: '#222' },
