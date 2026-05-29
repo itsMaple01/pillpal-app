@@ -27,6 +27,8 @@ import MenuRow from '@/components/MenuRow';
 import StatTile from '@/components/StatTile';
 import SwipeTabHost from '@/components/SwipeTabHost';
 import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import SwitchModeModal from '@/components/SwitchModeModal';
+import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
 import AppLogo from '@/components/AppLogo';
 import { SkeletonPatientRow } from '@/components/Skeleton';
@@ -114,6 +116,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [showTutorial,      setShowTutorial]       = useState(false);
   const [tutorialIdx,       setTutorialIdx]        = useState(0);
   const [showLogoutModal,   setShowLogoutModal]    = useState(false);
+  const [showSwitchFamily,  setShowSwitchFamily]   = useState(false);
+  const [scheduleDate,      setScheduleDate]       = useState(new Date());
 
   const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
@@ -432,10 +436,6 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
 
         <View style={styles.searchLinkRow}>
           <PatientSearchBar value={search} onChangeText={setSearch} style={{ flex: 1 }} />
-          <TouchableOpacity style={styles.linkBtnCompact} onPress={() => setShowLinkModal(true)}>
-            <AppIcon name="link" size={18} color="#fff" />
-            <Text style={styles.linkBtnCompactText}>Link</Text>
-          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -652,22 +652,34 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   };
 
   // ── SCHEDULE SCREEN ──
-  const renderScheduleTab = () => (
+  const renderScheduleTab = () => {
+    const markedDates = patients.flatMap(p =>
+      (scheduleByPatient[p.firebase_uid] || [])
+        .filter(m => !m.suspended)
+        .map(() => new Date().toISOString().slice(0, 10)),
+    );
+    return (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
+      <WeekCalendarStrip
+        selectedDate={scheduleDate}
+        onSelectDate={setScheduleDate}
+        markedDates={markedDates}
+      />
       <View style={styles.sectionHeaderRow}>
-        <Text style={styles.screenTitle}>📅 Patient Schedules</Text>
+        <AppIcon name="calendar-outline" size={22} color={GREEN} />
+        <Text style={styles.screenTitle}>Patient schedules</Text>
       </View>
 
       {patients.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>📭</Text>
+          <AppIcon name="calendar-outline" size={40} color="#ccc" />
           <Text style={styles.emptyText}>No patients linked yet</Text>
-          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
-            Schedules will appear here once patients are linked
-          </Text>
         </View>
       ) : (
-        patients.map(p => (
+        patients.map(p => {
+          const all = (scheduleByPatient[p.firebase_uid] || []).filter(m => !m.suspended);
+          const sorted = [...all].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+          return (
           <View key={p.firebase_uid} style={styles.schedulePatientCard}>
             <View style={styles.schedulePatientHeader}>
               <View style={styles.scheduleAvatar}>
@@ -677,57 +689,36 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.schedulePatientName}>{p.full_name ?? p.email}</Text>
-                <Text style={styles.schedulePatientSub}>Age {p.age ?? 'unknown'} · {getPatientStatus(p)}</Text>
-              </View>
-              <View style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[getPatientStatus(p)]?.bg ?? '#eee' }]}>
-                <Text style={[styles.statusText, { color: STATUS_COLORS[getPatientStatus(p)]?.text ?? '#333' }]}>
-                  {getPatientStatus(p)}
-                </Text>
+                <Text style={styles.schedulePatientSub}>Age {p.age ?? '—'} · {getPatientStatus(p)}</Text>
               </View>
             </View>
             <View style={styles.scheduleDivider} />
-            <View style={styles.scheduleTimeSlots}>
-              {(['Morning', 'Afternoon', 'Evening'] as const).map((slot, i) => {
-                const meds = (scheduleByPatient[p.firebase_uid] || []).filter(
-                  m => !m.suspended && medicationTimeBucket(m.time) === slot,
-                );
-                return (
-                  <View key={i} style={styles.scheduleSlot}>
-                    <Text style={styles.scheduleSlotTime}>{slot}</Text>
-                    {meds.length === 0 ? (
-                      <Text style={styles.scheduleSlotEmpty}>No meds</Text>
-                    ) : (
-                      meds.map(m => (
-                        <Text key={m.id} style={styles.scheduleMedLine} numberOfLines={3}>
-                          {m.taken ? '✓ ' : '○ '}{m.name} · {m.time || 'No time'}
-                        </Text>
-                      ))
-                    )}
+            {sorted.length === 0 ? (
+              <Text style={styles.scheduleSlotEmpty}>No medications scheduled</Text>
+            ) : (
+              sorted.map(m => (
+                <View key={m.id} style={styles.scheduleListRow}>
+                  <View style={styles.scheduleTimePill}>
+                    <Text style={styles.scheduleTimePillText}>{m.time || '—'}</Text>
                   </View>
-                );
-              })}
-            </View>
-            {(() => {
-              const unscheduled = (scheduleByPatient[p.firebase_uid] || []).filter(
-                m => !m.suspended && medicationTimeBucket(m.time) === null,
-              );
-              if (unscheduled.length === 0) return null;
-              return (
-                <View style={styles.scheduleUnscheduled}>
-                  <Text style={styles.scheduleSlotTime}>Unscheduled time</Text>
-                  {unscheduled.map(m => (
-                    <Text key={m.id} style={styles.scheduleMedLine}>
-                      {m.taken ? '✓ ' : '○ '}{m.name} · {m.time || '—'}
-                    </Text>
-                  ))}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.scheduleMedLineBold}>{m.name}</Text>
+                    <Text style={styles.scheduleMedLineSub}>{m.dosage}</Text>
+                  </View>
+                  <AppIcon
+                    name={m.taken ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={18}
+                    color={m.taken ? GREEN : '#ccc'}
+                  />
                 </View>
-              );
-            })()}
+              ))
+            )}
           </View>
-        ))
+        );})
       )}
     </ScrollView>
-  );
+    );
+  };
 
   // ── ALERTS SCREEN ──
   const renderAlertsTab = () => {
@@ -834,7 +825,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           icon="home-outline"
           label="Switch to Family view"
           sub="Simpler home for supporting a few loved ones"
-          onPress={onSwitchToFamily}
+          onPress={onSwitchToFamily ? () => setShowSwitchFamily(true) : undefined}
         />
       )}
       <MenuRow
@@ -881,18 +872,18 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   };
 
   const screenTitles: Record<CaretakerTab, string> = {
-    Home:        'Dashboard',
-    Patients:    'Caregiver/Family Dashboard',
-    Schedule:    'Schedules',
+    Home:        'Home',
+    Patients:    'Patients',
+    Schedule:    'Schedule',
     Medications: 'Medications',
     Manage:      'Manage',
   };
   const screenSubs: Record<CaretakerTab, string> = {
-    Home:        'Welcome back!',
-    Patients:    "Good day! Here's your patient overview.",
-    Schedule:    'All linked patients — full day view.',
-    Medications: 'Meds and alerts for each patient.',
-    Manage:      'Your account and settings.',
+    Home:        '',
+    Patients:    `${patients.length} linked`,
+    Schedule:    'Daily view',
+    Medications: 'By patient',
+    Manage:      'Account',
   };
 
   const saveEditedPatient = async () => {
@@ -1028,6 +1019,16 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               setTutorialIdx(i => i + 1);
             }
           }}
+          onBack={() => setTutorialIdx(i => Math.max(0, i - 1))}
+        />
+        <SwitchModeModal
+          visible={showSwitchFamily}
+          mode="toFamily"
+          onCancel={() => setShowSwitchFamily(false)}
+          onConfirm={() => {
+            setShowSwitchFamily(false);
+            onSwitchToFamily?.();
+          }}
         />
         <LogoutModal
           visible={showLogoutModal}
@@ -1048,7 +1049,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       <StatusBar barStyle="light-content" backgroundColor={GREEN} translucent={false} />
       <View style={[styles.contentTitleBar, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.contentTitle}>{screenTitles[activeTab]}</Text>
-        <Text style={styles.contentSub}>{screenSubs[activeTab]}</Text>
+        {!!screenSubs[activeTab] && (
+          <Text style={styles.contentSub}>{screenSubs[activeTab]}</Text>
+        )}
       </View>
 
       <SwipeTabHost
@@ -1089,6 +1092,16 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         } else {
           setTutorialIdx(i => i + 1);
         }
+      }}
+      onBack={() => setTutorialIdx(i => Math.max(0, i - 1))}
+    />
+    <SwitchModeModal
+      visible={showSwitchFamily}
+      mode="toFamily"
+      onCancel={() => setShowSwitchFamily(false)}
+      onConfirm={() => {
+        setShowSwitchFamily(false);
+        onSwitchToFamily?.();
       }}
     />
     <LogoutModal
@@ -1374,7 +1387,26 @@ const styles = StyleSheet.create({
   emptyText:  { fontSize: 15, color: '#aaa' },
 
   // Schedule
-  sectionHeaderRow:      { marginBottom: 4 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  scheduleListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2ee',
+  },
+  scheduleTimePill: {
+    backgroundColor: GREEN_LIGHT,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  scheduleTimePillText: { fontSize: 12, fontWeight: '800', color: GREEN },
+  scheduleMedLineBold: { fontSize: 14, fontWeight: '800', color: '#222' },
+  scheduleMedLineSub: { fontSize: 12, color: '#666', marginTop: 2 },
   screenTitle:           { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
   schedulePatientCard:   { backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
   schedulePatientHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },

@@ -30,6 +30,7 @@ import { subscribePatientMedications } from '@/services/medicationRealtime';
 import {
   registerForPushNotificationsAsync,
   rescheduleMedicationLocalNotifications,
+  forceRescheduleMedicationLocalNotifications,
   setupNotifications,
 } from '@/lib/pushNotifications';
 import { logIntelligenceEvent } from '@/api/index';
@@ -39,6 +40,7 @@ import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
 import AppIcon, { PATIENT_TAB_ICONS } from '@/components/AppIcon';
+import AppLogo from '@/components/AppLogo';
 import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
 import NotificationSettingsModal from '@/components/NotificationSettingsModal';
@@ -190,12 +192,14 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
           </View>
 
           <View style={ms.heroHeader}>
-            <View style={ms.heroIconWrap}>
-              <AppIcon name="medical" size={32} color={GREEN} />
+            <View style={ms.heroLogoRow}>
+              <AppLogo size={44} />
+              <View style={ms.heroTextCol}>
+                <Text style={ms.heroKicker}>{APP_NAME}</Text>
+                <Text style={ms.title}>{editingMed ? 'Edit medication' : 'Add medication'}</Text>
+              </View>
             </View>
-            <Text style={ms.heroKicker}>{APP_NAME.toUpperCase()}</Text>
-            <Text style={ms.title}>{editingMed ? 'Edit medication' : 'Add medication'}</Text>
-            <Text style={ms.heroSub}>Create a reminder your caregiver can see when linked.</Text>
+            <Text style={ms.heroSub}>Set name, time, and optional end date — reminders sync automatically.</Text>
           </View>
 
           <ScrollView
@@ -671,7 +675,15 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         setShowAddModal(false);
         setEditingMed(null);
         setActiveTab('Medications');
+        const updatedMeds = medicationsRef.current.map(m =>
+          m.id === med.id
+            ? { ...m, name: med.name, dosage: med.dosage, frequency: med.frequency, time: med.time }
+            : m,
+        );
+        setMedications(updatedMeds);
+        medicationsRef.current = updatedMeds;
         await bumpPatientActivity(uid, 'medication_update');
+        await forceRescheduleMedicationLocalNotifications(updatedMeds, uid);
       } catch (err) {
         console.error(err);
         if (Platform.OS === 'web') window.alert('Could not update medication.');
@@ -704,15 +716,20 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         console.warn('Could not persist firestore_id to Neon:', e);
       }
 
-      setMedications(prev => [...prev, {
-        id: postgresId, firestoreId: firestoreDoc.id,
-        name: med.name, dosage: med.dosage,
-        frequency: med.frequency, time: med.time, taken: false,
-      }]);
+      setMedications(prev => {
+        const next = [...prev, {
+          id: postgresId, firestoreId: firestoreDoc.id,
+          name: med.name, dosage: med.dosage,
+          frequency: med.frequency, time: med.time, taken: false,
+        }];
+        medicationsRef.current = next;
+        return next;
+      });
 
       setShowAddModal(false);
       setActiveTab('Home');
       await bumpPatientActivity(uid, 'medication_update');
+      await forceRescheduleMedicationLocalNotifications(medicationsRef.current, uid);
 
       if (Platform.OS === 'web') window.alert(`${med.name} has been added to your reminders.`);
       else Alert.alert('✅ Added', `${med.name} added to your reminders.`);
@@ -812,24 +829,35 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const handleRefill = useCallback(async (id: string) => {
     try {
       await refillMedication(Number(id));
-    } catch (e) {
-      console.error(e);
+      Alert.alert('Refilled', 'Supply extended by 30 days.');
+    } catch {
+      Alert.alert('Error', 'Could not refill this medication.');
     }
   }, []);
 
   const handleSuspendMed = useCallback(async (med: PatientMedication) => {
+    const pausing = !med.suspended;
     try {
       await updateMedication(Number(med.id), {
         name: med.name,
         dosage: med.dosage,
         frequency: med.frequency,
         time: med.time,
-        suspended: !med.suspended,
+        suspended: pausing,
       });
-    } catch (e) {
-      console.error(e);
+      Alert.alert(pausing ? 'Paused' : 'Resumed', pausing
+        ? 'Reminders paused for this medication.'
+        : 'Reminders are active again.');
+      await forceRescheduleMedicationLocalNotifications(
+        medicationsRef.current.map(m =>
+          m.id === med.id ? { ...m, suspended: pausing } : m,
+        ),
+        uid,
+      );
+    } catch {
+      Alert.alert('Error', 'Could not update medication.');
     }
-  }, []);
+  }, [uid]);
 
   const handleToggleMedNotify = useCallback(async (med: PatientMedication) => {
     const next = !(med.notify_enabled !== false);
@@ -1131,6 +1159,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           setShowTutorial(false);
           await setTutorialDone('patient', uid);
         }}
+        onBack={() => setTutorialIdx(i => Math.max(0, i - 1))}
         onNext={async () => {
           if (tutorialIdx >= PATIENT_TUTORIAL.length - 1) {
             setShowTutorial(false);
@@ -1384,11 +1413,19 @@ const ms = StyleSheet.create({
     backgroundColor: 'rgba(45, 122, 58, 0.28)',
   },
   heroHeader: {
-    backgroundColor: GREEN,
+    backgroundColor: '#f4faf4',
     paddingHorizontal: 22,
-    paddingTop: 8,
-    paddingBottom: 22,
+    paddingTop: 16,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8f0e8',
   },
+  heroLogoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  heroTextCol: { flex: 1 },
   heroIconWrap: {
     width: 52, height: 52, borderRadius: 26,
     backgroundColor: 'rgba(255,255,255,0.14)',
@@ -1399,14 +1436,14 @@ const ms = StyleSheet.create({
   },
   heroIcon: { fontSize: 26 },
   heroKicker: {
-    fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.88)',
-    letterSpacing: 2, marginBottom: 4,
+    fontSize: 11, fontWeight: '800', color: GREEN,
+    letterSpacing: 1.2, marginBottom: 2,
   },
   title: {
-    fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.4,
+    fontSize: 20, fontWeight: '800', color: '#142018', letterSpacing: -0.3,
   },
   heroSub: {
-    fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 8, lineHeight: 19,
+    fontSize: 13, color: '#6a736e', marginTop: 12, lineHeight: 19,
   },
   scrollContent: { padding: 20, paddingBottom: 8, gap: 20 },
 
