@@ -17,21 +17,29 @@ export interface TutorialStep {
   body: string;
 }
 
-export const PATIENT_TUTORIAL: TutorialStep[] = [
-  { title: 'Home', body: 'See today’s meds and mark them taken from the list.' },
-  { title: 'Calendar', body: 'Swipe the week strip to plan ahead. Dots show upcoming doses.' },
-  { title: 'Medications', body: 'Tap any medication card to edit. Use the switch on the right when you take a dose.' },
-  { title: 'Manage', body: 'Link family, notifications, and your profile live here.' },
+export interface NavTutorialStep extends TutorialStep {
+  /** Switches the highlighted bottom tab during the tour. */
+  tab?: string;
+}
+
+export const PATIENT_TUTORIAL: NavTutorialStep[] = [
+  { tab: 'Home', title: 'Home', body: 'See today’s meds, stats, and shortcuts to your full list and calendar.' },
+  { tab: 'Calendar', title: 'Calendar', body: 'Swipe the week strip to plan ahead. Dots mark days with reminders.' },
+  { tab: 'Medications', title: 'Medications', body: 'Add, edit, or remove reminders. Use the switch when you take a dose.' },
+  { tab: 'Manage', title: 'Manage', body: 'Link caregivers, notification settings, privacy, and sign out.' },
 ];
 
-export const FAMILY_TUTORIAL: TutorialStep[] = [
-  { title: 'Family home', body: 'View everyone you support and send reminders with one tap.' },
-  { title: 'Schedules', body: 'See all linked members’ morning, afternoon, and evening meds.' },
-  { title: 'Caregiver mode', body: 'Switch to the full caregiver dashboard anytime in Manage.' },
+export const FAMILY_TUTORIAL: NavTutorialStep[] = [
+  { tab: 'Home', title: 'Home', body: 'Overview of everyone you support and quick actions to send reminders.' },
+  { tab: 'Family', title: 'Family', body: 'See linked members and accept new link requests from patients.' },
+  { tab: 'Schedule', title: 'Schedule', body: 'Morning, afternoon, and evening doses for each linked person.' },
+  { tab: 'Manage', title: 'Manage', body: 'Link more family, switch to caregiver mode, or sign out.' },
 ];
 
-export const CAREGIVER_TUTORIAL: TutorialStep[] = [
-  { title: 'Patients', body: 'Search and expand a patient to send reminders or edit info.' },
-  { title: 'Medications', body: 'Open a patient to view meds. Alerts are inside this tab.' },
-  { title: 'Schedule', body: 'Every linked patient’s day appears here — not just one person.' },
+export const CAREGIVER_TUTORIAL: NavTutorialStep[] = [
+  { tab: 'Home', title: 'Dashboard', body: 'Quick stats and shortcuts to patients, medications, and alerts.' },
+  { tab: 'Patients', title: 'Patients', body: 'Search, expand a patient, send reminders, and accept link requests.' },
+  { tab: 'Schedule', title: 'Schedule', body: 'Every linked patient’s day in one place — morning through evening.' },
+  { tab: 'Medications', title: 'Medications', body: 'Open a patient to view meds. Alerts live in this tab too.' },
+  { tab: 'Manage', title: 'Manage', body: 'Link patients, account settings, family view, and sign out.' },
 ];

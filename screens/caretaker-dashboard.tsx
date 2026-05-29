@@ -26,7 +26,13 @@ import AppIcon, { TAB_ICONS } from '@/components/AppIcon';
 import MenuRow from '@/components/MenuRow';
 import StatTile from '@/components/StatTile';
 import SwipeTabHost from '@/components/SwipeTabHost';
+import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import LogoutModal from '@/components/LogoutModal';
+import AppLogo from '@/components/AppLogo';
 import { SkeletonPatientRow } from '@/components/Skeleton';
+import {
+  isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
+} from '@/lib/tutorial';
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -105,6 +111,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [editAge,           setEditAge]            = useState('');
   const [editCondition,     setEditCondition]      = useState('');
   const [medsShowAlerts,    setMedsShowAlerts]     = useState(false);
+  const [showTutorial,      setShowTutorial]       = useState(false);
+  const [tutorialIdx,       setTutorialIdx]        = useState(0);
+  const [showLogoutModal,   setShowLogoutModal]    = useState(false);
 
   const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
@@ -154,7 +163,19 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     registerForPushNotificationsAsync().then(token => {
       if (token) saveExpoPushToken(uid, token).catch(() => {});
     });
+    isTutorialDone('caregiver', uid).then(done => {
+      if (!done) {
+        setTutorialIdx(0);
+        setShowTutorial(true);
+      }
+    });
   }, [uid]);
+
+  useEffect(() => {
+    if (!showTutorial) return;
+    const step = CAREGIVER_TUTORIAL[tutorialIdx];
+    if (step?.tab) setActiveTab(step.tab as CaretakerTab);
+  }, [showTutorial, tutorialIdx]);
 
   const handleSendReminder = useCallback(async (patient: Patient) => {
     try {
@@ -273,7 +294,12 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         sub="Browse meds by patient"
         onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
       />
-      <MenuRow icon="notifications-outline" label="Check alerts" sub="See who needs follow-up" onPress={() => setActiveTab('Alerts')} />
+      <MenuRow
+        icon="notifications-outline"
+        label="Check alerts"
+        sub="See who needs follow-up"
+        onPress={() => { setMedsShowAlerts(true); setActiveTab('Medications'); }}
+      />
 
       <View style={styles.homeTipCard}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -358,13 +384,15 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                 style={styles.actionBtnGreen}
                 onPress={() => loadPatientMedications(patient)}
               >
-                <Text style={styles.actionBtnText}>💊 View Medications</Text>
+                <AppIcon name="medical-outline" size={18} color="#fff" />
+                <Text style={styles.actionBtnText}>View medications</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionBtnOutline}
                 onPress={() => setActiveTab('Schedule')}
               >
-                <Text style={styles.actionBtnOutlineText}>📋 Schedule</Text>
+                <AppIcon name="calendar-outline" size={18} color={GREEN} />
+                <Text style={styles.actionBtnOutlineText}>Schedule</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity
@@ -376,12 +404,14 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                 setEditCondition((patient.health_condition || '').trim());
               }}
             >
-              <Text style={styles.actionBtnOutlineText}>✏️ Edit patient info</Text>
+              <AppIcon name="create-outline" size={18} color={GREEN} />
+              <Text style={styles.actionBtnOutlineText}>Edit patient info</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtnOutline, { marginTop: 8 }]}
               onPress={() => handleSendReminder(patient)}
             >
+              <AppIcon name="notifications-outline" size={18} color={GREEN} />
               <Text style={styles.actionBtnOutlineText}>Send reminder</Text>
             </TouchableOpacity>
           </View>
@@ -791,6 +821,13 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         onPress={() => { setSelectedPatient(null); setPatientMedications([]); setActiveTab('Medications'); }}
       />
 
+      <MenuRow
+        icon="link-outline"
+        label="Link patient / family"
+        sub="Redeem code or review patient requests"
+        onPress={() => setShowLinkModal(true)}
+      />
+
       <Text style={styles.manageSection}>Settings</Text>
       {onSwitchToFamily && (
         <MenuRow
@@ -819,7 +856,13 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         onPress={() => showAlert('Help', 'Swipe bottom icons to move between sections. Use Medications → Alerts for patient warnings.')}
       />
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
+      <MenuRow
+        icon="book-outline"
+        label="Show tutorial"
+        sub="Learn what each tab does"
+        onPress={() => { setTutorialIdx(0); setShowTutorial(true); }}
+      />
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogoutModal(true)}>
         <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
@@ -929,7 +972,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         <StatusBar barStyle="dark-content" backgroundColor="#dce3dc" translucent={false} />
         <View style={styles.sidebarPanel}>
           <View style={styles.sidebarLogo}>
-            <AppIcon name="medical" size={26} color="#fff" />
+            <AppLogo size={40} />
             <Text style={styles.sidebarLogoText}>GabayRa</Text>
           </View>
           <View style={styles.sidebarNav}>
@@ -967,6 +1010,33 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           onLinked={() => { fetchPatients(false); fetchLinkRequests(); }}
         />
         {editPatientModal}
+        <NavTutorialOverlay
+          visible={showTutorial}
+          steps={CAREGIVER_TUTORIAL}
+          index={tutorialIdx}
+          tabs={SIDE_TABS.map(t => ({ key: t.label, icon: t.icon, label: t.label }))}
+          activeTab={activeTab}
+          onSkip={async () => {
+            setShowTutorial(false);
+            await setTutorialDone('caregiver', uid);
+          }}
+          onNext={async () => {
+            if (tutorialIdx >= CAREGIVER_TUTORIAL.length - 1) {
+              setShowTutorial(false);
+              await setTutorialDone('caregiver', uid);
+            } else {
+              setTutorialIdx(i => i + 1);
+            }
+          }}
+        />
+        <LogoutModal
+          visible={showLogoutModal}
+          onCancel={() => setShowLogoutModal(false)}
+          onConfirm={() => {
+            setShowLogoutModal(false);
+            onLogout();
+          }}
+        />
       </>
     );
   }
@@ -1002,6 +1072,33 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       onLinked={() => { fetchPatients(false); fetchLinkRequests(); }}
     />
     {editPatientModal}
+    <NavTutorialOverlay
+      visible={showTutorial}
+      steps={CAREGIVER_TUTORIAL}
+      index={tutorialIdx}
+      tabs={SIDE_TABS.map(t => ({ key: t.label, icon: t.icon, label: t.label }))}
+      activeTab={activeTab}
+      onSkip={async () => {
+        setShowTutorial(false);
+        await setTutorialDone('caregiver', uid);
+      }}
+      onNext={async () => {
+        if (tutorialIdx >= CAREGIVER_TUTORIAL.length - 1) {
+          setShowTutorial(false);
+          await setTutorialDone('caregiver', uid);
+        } else {
+          setTutorialIdx(i => i + 1);
+        }
+      }}
+    />
+    <LogoutModal
+      visible={showLogoutModal}
+      onCancel={() => setShowLogoutModal(false)}
+      onConfirm={() => {
+        setShowLogoutModal(false);
+        onLogout();
+      }}
+    />
     </>
   );
 }
@@ -1066,7 +1163,7 @@ const ct = StyleSheet.create({
 // MAIN STYLES
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  outer: { flex: 1, backgroundColor: '#f0f4f0' },
+  outer: { flex: 1, backgroundColor: '#ffffff' },
 
   tabletShell: {
     flex: 1,
@@ -1247,9 +1344,29 @@ const styles = StyleSheet.create({
   expandedStatLabel: { fontSize: 10, color: '#888', marginTop: 2, textAlign: 'center' },
   expandedActions:   { flexDirection: 'row', gap: 10 },
 
-  actionBtnGreen:   { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  actionBtnGreen: {
+    flex: 1,
+    backgroundColor: GREEN,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
   actionBtnText:    { color: '#fff', fontWeight: '700', fontSize: 13 },
-  actionBtnOutline: { flex: 1, borderWidth: 1.5, borderColor: GREEN, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  actionBtnOutline: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: GREEN,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#fff',
+  },
   actionBtnOutlineText: { color: GREEN, fontWeight: '700', fontSize: 13 },
 
   emptyState: { alignItems: 'center', paddingVertical: 40 },

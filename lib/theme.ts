@@ -4,7 +4,7 @@ export const theme = {
   greenDark: '#2f6f47',
   greenLight: '#eef6f0',
   greenMuted: '#d4e8da',
-  bg: '#f4f6f4',
+  bg: '#ffffff',
   surface: '#ffffff',
   text: '#1a1f1c',
   textSecondary: '#5c6b62',

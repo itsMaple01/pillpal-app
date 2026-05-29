@@ -2,6 +2,8 @@ import {
   View, Text, TouchableOpacity, StyleSheet, Modal, Animated,
 } from 'react-native';
 import { useEffect, useRef } from 'react';
+import AppIcon from '@/components/AppIcon';
+import AppLogo from '@/components/AppLogo';
 
 const GREEN = '#2d7a3a';
 const GREEN_LIGHT = '#e8f5e9';
@@ -39,9 +41,7 @@ export default function LogoutModal({ visible, onConfirm, onCancel }: Props) {
           <View style={s.accentBar} />
           <View style={s.cardInner}>
             <View style={s.topRow}>
-              <View style={s.iconCircle}>
-                <Text style={s.iconEmoji}>💊</Text>
-              </View>
+              <AppLogo size={44} />
               <View style={s.topText}>
                 <Text style={s.brand}>GabayRa</Text>
                 <Text style={s.title}>Sign out?</Text>

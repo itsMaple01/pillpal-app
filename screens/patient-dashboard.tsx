@@ -5,7 +5,9 @@ import {
 } from 'react-native';
 import SwipeTabHost from '@/components/SwipeTabHost';
 import WeekCalendarStrip from '@/components/WeekCalendarStrip';
-import TutorialOverlay from '@/components/TutorialOverlay';
+import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import DeleteMedicationModal from '@/components/DeleteMedicationModal';
+import LogoutModal from '@/components/LogoutModal';
 import { SkeletonMedCard } from '@/components/Skeleton';
 import {
   isTutorialDone, setTutorialDone, PATIENT_TUTORIAL,
@@ -39,6 +41,8 @@ import LinkCaretakerModal from '@/components/LinkCaretakerModal';
 import AppIcon, { PATIENT_TAB_ICONS } from '@/components/AppIcon';
 import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
+import NotificationSettingsModal from '@/components/NotificationSettingsModal';
+import PrivacySecurityModal from '@/components/PrivacySecurityModal';
 import StatTile from '@/components/StatTile';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
@@ -219,7 +223,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
             {/* Dosage */}
             <View style={ms.fieldGroup}>
               <View style={ms.labelRow}>
-                <Text style={ms.labelIcon}>🏷️</Text>
+                <AppIcon name="pricetag-outline" size={16} color={GREEN} />
                 <Text style={ms.label}>DOSAGE</Text>
               </View>
               <TextInput
@@ -267,7 +271,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                 </View>
               )}
               <View style={ms.freqSubRow}>
-                <Text style={ms.freqSubIcon}>📅</Text>
+                <AppIcon name="calendar-outline" size={14} color="#888" />
                 <Text style={ms.freqSub}>{FREQUENCIES[freqIdx].sub}</Text>
               </View>
             </View>
@@ -280,7 +284,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                   onPress={() => setShowEndDate(true)}
                   activeOpacity={0.8}
                 >
-                  <Text style={ms.endDateIcon}>📅</Text>
+                  <AppIcon name="calendar-outline" size={18} color={GREEN} />
                   <Text style={ms.endDateText}>Set end date (optional)</Text>
                 </TouchableOpacity>
               ) : (
@@ -290,14 +294,14 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                     onPress={() => { setShowEndDate(false); setEndDate(null); }}
                     activeOpacity={0.8}
                   >
-                    <Text style={ms.endDateIcon}>📅</Text>
+                    <AppIcon name="calendar-outline" size={18} color={RED} />
                     <Text style={ms.removeEndDateText}>Remove end date</Text>
                   </TouchableOpacity>
 
                   <View style={ms.calBox}>
                     <Text style={ms.calBoxLabel}>REMIND ME UNTIL</Text>
                     <View style={[ms.dateDisplay, !!endDate && ms.dateDisplayActive]}>
-                      <Text style={ms.endDateIcon}>📅</Text>
+                      <AppIcon name="calendar-outline" size={18} color={GREEN} />
                       <Text style={[ms.dateDisplayText, !endDate && { color: '#aaa' }]}>
                         {endDate
                           ? `${MONTHS[endDate.getMonth()]} ${endDate.getDate()}, ${endDate.getFullYear()}`
@@ -561,6 +565,11 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [medsLoading, setMedsLoading] = useState(true);
   const [tutorialIdx, setTutorialIdx] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showPrivacySettings, setShowPrivacySettings] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deletingMed, setDeletingMed] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // ── Ref so callbacks always see current medications without stale closures ──
   const medicationsRef = useRef<PatientMedication[]>([]);
@@ -586,6 +595,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       }
     });
   }, [uid]);
+
+  useEffect(() => {
+    if (!showTutorial) return;
+    const step = PATIENT_TUTORIAL[tutorialIdx];
+    if (step?.tab) setActiveTab(step.tab as PatientTab);
+  }, [showTutorial, tutorialIdx]);
 
   const { isConnected, isInternetReachable } = useNetworkStatus();
   const online = isConnected && isInternetReachable;
@@ -768,23 +783,31 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   // ── Delete medication ──
   const handleDeleteMed = useCallback((id: string) => {
-    const doDelete = async () => {
-      const med = medicationsRef.current.find(m => m.id === id);
-      setMedications(prev => prev.filter(m => m.id !== id));
-      try { await deleteMedication(Number(id)); } catch (err) { console.error(err); }
-      if (med?.firestoreId) {
-        try { await deleteDoc(doc(db, 'reminders', med.firestoreId)); } catch (err) { console.error(err); }
-      }
-    };
-    if (Platform.OS === 'web') {
-      if (window.confirm('Delete this medication?')) doDelete();
-    } else {
-      Alert.alert('Delete', 'Remove this medication?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: doDelete },
-      ]);
-    }
+    const med = medicationsRef.current.find(m => m.id === id);
+    setDeleteTarget({ id, name: med?.name ?? 'Medication' });
   }, []);
+
+  const confirmDeleteMed = useCallback(async () => {
+    if (!deleteTarget) return;
+    setDeletingMed(true);
+    const { id } = deleteTarget;
+    const med = medicationsRef.current.find(m => m.id === id);
+    setMedications(prev => prev.filter(m => m.id !== id));
+    try {
+      await deleteMedication(Number(id));
+    } catch (err) {
+      console.error(err);
+    }
+    if (med?.firestoreId) {
+      try {
+        await deleteDoc(doc(db, 'reminders', med.firestoreId));
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    setDeletingMed(false);
+    setDeleteTarget(null);
+  }, [deleteTarget]);
 
   const handleRefill = useCallback(async (id: string) => {
     try {
@@ -831,6 +854,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const HomeScreen = () => (
     <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
       <View style={styles.greetingCard}>
+        <View style={styles.cardAccent} />
         <View style={styles.greetingIconWrap}>
           <AppIcon name="sunny-outline" size={28} color={GREEN} />
         </View>
@@ -936,7 +960,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         badge={medications.length}
         onPress={() => setActiveTab('Medications')}
       />
-      <MenuRow icon="bar-chart-outline" label="Report" sub={`${takenToday} taken today`} showChevron={false} />
+      <MenuRow
+        icon="bar-chart-outline"
+        label="Report"
+        sub={`${takenToday} taken today`}
+        onPress={() => setActiveTab('Home')}
+      />
       <MenuRow icon="calendar-outline" label="Schedule & calendar" sub="View all reminders" onPress={() => setActiveTab('Calendar')} />
 
       <Text style={styles.manageSection}>Account</Text>
@@ -992,11 +1021,32 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         </View>
       )}
 
-      <MenuRow icon="notifications-outline" label="Notification settings" sub="Manage alerts" />
-      <MenuRow icon="lock-closed-outline" label="Privacy & security" sub="Manage your data" />
-      <MenuRow icon="help-circle-outline" label="Help & support" sub="Get help" />
+      <MenuRow
+        icon="notifications-outline"
+        label="Notification settings"
+        sub="Manage alerts"
+        onPress={() => setShowNotificationSettings(true)}
+      />
+      <MenuRow
+        icon="lock-closed-outline"
+        label="Privacy & security"
+        sub="Manage your data"
+        onPress={() => setShowPrivacySettings(true)}
+      />
+      <MenuRow
+        icon="book-outline"
+        label="Show tutorial"
+        sub="Learn what each tab does"
+        onPress={() => { setTutorialIdx(0); setShowTutorial(true); }}
+      />
+      <MenuRow
+        icon="help-circle-outline"
+        label="Help & support"
+        sub="Get help"
+        onPress={() => Alert.alert(APP_NAME, 'For help, contact your caregiver or clinic. Medication data stays on your account until you sign out.')}
+      />
 
-      <TouchableOpacity style={styles.logoutRowBtn} onPress={onLogout}>
+      <TouchableOpacity style={styles.logoutRowBtn} onPress={() => setShowLogoutModal(true)}>
         <AppIcon name="log-out-outline" size={22} color="#c62828" />
         <Text style={styles.logoutRowText}>Log Out</Text>
       </TouchableOpacity>
@@ -1071,10 +1121,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         editingMed={editingMed}
         existingMedicationTimes={medications.map(m => m.time).filter(Boolean)}
       />
-      <TutorialOverlay
+      <NavTutorialOverlay
         visible={showTutorial}
         steps={PATIENT_TUTORIAL}
         index={tutorialIdx}
+        tabs={TABS.map(t => ({ key: t.label, icon: PATIENT_TAB_ICONS[t.label], label: t.label }))}
+        activeTab={activeTab}
         onSkip={async () => {
           setShowTutorial(false);
           await setTutorialDone('patient', uid);
@@ -1088,6 +1140,21 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           }
         }}
       />
+      <DeleteMedicationModal
+        visible={deleteTarget !== null}
+        medicationName={deleteTarget?.name ?? ''}
+        onCancel={() => !deletingMed && setDeleteTarget(null)}
+        onConfirm={confirmDeleteMed}
+        deleting={deletingMed}
+      />
+      <LogoutModal
+        visible={showLogoutModal}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={() => {
+          setShowLogoutModal(false);
+          onLogout();
+        }}
+      />
       <LinkCaretakerModal
         visible={showLinkCaretaker}
         onClose={() => {
@@ -1097,6 +1164,19 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         uid={uid}
         email={email}
       />
+      <NotificationSettingsModal
+        visible={showNotificationSettings}
+        onClose={() => setShowNotificationSettings(false)}
+        onPreferenceChange={enabled => {
+          if (enabled) {
+            rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
+          }
+        }}
+      />
+      <PrivacySecurityModal
+        visible={showPrivacySettings}
+        onClose={() => setShowPrivacySettings(false)}
+      />
     </View>
   );
 }
@@ -1105,7 +1185,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 // STYLES
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  outer:  { flex: 1, backgroundColor: '#f0f4f0' },
+  outer:  { flex: 1, backgroundColor: '#ffffff' },
   header: {
     backgroundColor: GREEN, flexDirection: 'row',
     justifyContent: 'space-between', alignItems: 'center',
@@ -1128,9 +1208,17 @@ const styles = StyleSheet.create({
   greetingCard: {
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderLeftWidth: 4, borderLeftColor: GREEN,
+    overflow: 'hidden',
     borderWidth: 1, borderColor: '#eef2ee',
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+  },
+  cardAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: GREEN,
   },
   greetingIconWrap: {
     width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
@@ -1330,12 +1418,14 @@ const ms = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 15, color: '#222', backgroundColor: '#fafafa',
+    width: '100%',
   },
 
   dropdown: {
     borderWidth: 1.5, borderColor: '#e0e0e0', borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#fafafa',
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%',
   },
   dropdownOpen:         { borderColor: GREEN, backgroundColor: GREEN_LIGHT },
   dropdownText:         { fontSize: 15, color: '#222', fontWeight: '500' },

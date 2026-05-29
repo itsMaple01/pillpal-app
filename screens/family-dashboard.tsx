@@ -6,19 +6,41 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useState } from 'react';
 import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
-  saveExpoPushToken, getIncomingLinkRequests, acceptLinkRequest, rejectLinkRequest,
+  saveExpoPushToken,
 } from '@/api/index';
 import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
+import { mapMedicationRows } from '@/services/medicationRealtime';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
 import LinkPatientModal from '@/components/Linkpatientmodal';
 import AppHeader from '@/components/AppHeader';
 import AppIcon from '@/components/AppIcon';
 import MenuRow from '@/components/MenuRow';
 import StatTile from '@/components/StatTile';
+import SwipeTabHost from '@/components/SwipeTabHost';
+import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import LogoutModal from '@/components/LogoutModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
+import { theme } from '@/lib/theme';
+import {
+  isTutorialDone, setTutorialDone, FAMILY_TUTORIAL,
+} from '@/lib/tutorial';
 import type { PatientMedication } from '@/types/medication';
+import type { ComponentProps } from 'react';
+
+type Tab = 'Home' | 'Family' | 'Schedule' | 'Manage';
+type IonName = ComponentProps<typeof AppIcon>['name'];
+
+const GREEN = theme.green;
+const GREEN_LIGHT = theme.greenLight;
+
+const FAMILY_TAB_ICONS: Record<Tab, IonName> = {
+  Home: 'home-outline',
+  Family: 'people-outline',
+  Schedule: 'calendar-outline',
+  Manage: 'settings-outline',
+};
 
 interface Props {
   uid: string;
@@ -34,12 +56,6 @@ interface LinkedPerson {
   missed_doses?: number;
 }
 
-type Tab = 'Home' | 'Family' | 'Schedule' | 'Manage';
-
-const GREEN = '#2d7a3a';
-const GREEN_LIGHT = '#e8f5e9';
-const TABS: Tab[] = ['Home', 'Family', 'Schedule', 'Manage'];
-
 export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = Dimensions.get('window');
@@ -52,7 +68,9 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [medsByPerson, setMedsByPerson] = useState<Record<string, PatientMedication[]>>({});
   const [showLink, setShowLink] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [linkRequests, setLinkRequests] = useState<any[]>([]);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialIdx, setTutorialIdx] = useState(0);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const loadPeople = useCallback(async () => {
     try {
@@ -64,7 +82,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         list.slice(0, 5).map(async (p: LinkedPerson) => {
           try {
             const m = await getMedications(p.firebase_uid);
-            medMap[p.firebase_uid] = Array.isArray(m.data) ? m.data : [];
+            const rows = Array.isArray(m.data) ? m.data : [];
+            medMap[p.firebase_uid] = mapMedicationRows(rows);
           } catch {
             medMap[p.firebase_uid] = [];
           }
@@ -86,10 +105,19 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     registerForPushNotificationsAsync().then(t => {
       if (t) saveExpoPushToken(uid, t).catch(() => {});
     });
-    getIncomingLinkRequests(uid)
-      .then(r => setLinkRequests(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setLinkRequests([]));
+    isTutorialDone('family', uid).then(done => {
+      if (!done) {
+        setTutorialIdx(0);
+        setShowTutorial(true);
+      }
+    });
   }, [uid, loadPeople]);
+
+  useEffect(() => {
+    if (!showTutorial) return;
+    const step = FAMILY_TUTORIAL[tutorialIdx];
+    if (step?.tab) setTab(step.tab as Tab);
+  }, [showTutorial, tutorialIdx]);
 
   useEffect(() => {
     if (people.length === 0) return;
@@ -139,7 +167,9 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       <View key={person.firebase_uid} style={styles.personCard}>
         <View style={styles.personRow}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{(person.full_name ?? person.email ?? '?').charAt(0).toUpperCase()}</Text>
+            <Text style={styles.avatarText}>
+              {(person.full_name ?? person.email ?? '?').charAt(0).toUpperCase()}
+            </Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.personName}>{person.full_name ?? person.email}</Text>
@@ -151,9 +181,14 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         {!compact && (
           <View style={styles.personActions}>
             <TouchableOpacity style={styles.actionBtn} onPress={() => sendReminder(person)}>
+              <AppIcon name="notifications-outline" size={18} color="#fff" />
               <Text style={styles.actionBtnText}>Send reminder</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionBtnOutline} onPress={() => { setSelectedId(person.firebase_uid); setTab('Schedule'); }}>
+            <TouchableOpacity
+              style={styles.actionBtnOutline}
+              onPress={() => { setSelectedId(person.firebase_uid); setTab('Schedule'); }}
+            >
+              <AppIcon name="calendar-outline" size={18} color={GREEN} />
               <Text style={styles.actionBtnOutlineText}>View schedule</Text>
             </TouchableOpacity>
           </View>
@@ -162,227 +197,371 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     );
   };
 
-  const renderSchedule = () => {
-    const list = selectedId ? people.filter(p => p.firebase_uid === selectedId) : people;
+  const renderScheduleSlot = (person: LinkedPerson, slot: 'Morning' | 'Afternoon' | 'Evening') => {
+    const all = (medsByPerson[person.firebase_uid] || []).filter(m => !m.suspended);
+    const meds = all.filter(m => medicationTimeBucket(m.time) === slot);
     return (
-      <ScrollView contentContainerStyle={styles.scrollPad}>
-        <Text style={styles.sectionTitle}>Today&apos;s schedules</Text>
-        {list.map(person => (
-          <View key={person.firebase_uid} style={styles.scheduleCard}>
-            <Text style={styles.scheduleName}>{person.full_name ?? person.email}</Text>
-            <View style={styles.slotRow}>
-              {(['Morning', 'Afternoon', 'Evening'] as const).map(slot => {
-                const meds = (medsByPerson[person.firebase_uid] || []).filter(m => {
-                  if (m.suspended) return false;
-                  return medicationTimeBucket(m.time) === slot;
-                });
-                return (
-                  <View key={slot} style={styles.slot}>
-                    <Text style={styles.slotLabel}>{slot}</Text>
-                    {meds.length === 0 ? (
-                      <Text style={styles.slotEmpty}>No meds</Text>
-                    ) : (
-                      meds.map(m => (
-                        <Text key={m.id} style={styles.slotMed}>
-                          {m.taken ? '✓ ' : '○ '}{m.name} · {parseMedicationTime(m.time)?.label ?? m.time}
-                        </Text>
-                      ))
-                    )}
-                  </View>
-                );
-              })}
+      <View key={slot} style={styles.slot}>
+        <View style={styles.slotHead}>
+          <AppIcon
+            name={slot === 'Morning' ? 'sunny-outline' : slot === 'Afternoon' ? 'partly-sunny-outline' : 'moon-outline'}
+            size={16}
+            color={GREEN}
+          />
+          <Text style={styles.slotLabel}>{slot}</Text>
+        </View>
+        {meds.length === 0 ? (
+          <Text style={styles.slotEmpty}>No meds</Text>
+        ) : (
+          meds.map(m => (
+            <View key={m.id} style={styles.slotMedRow}>
+              <AppIcon
+                name={m.taken ? 'checkmark-circle' : 'ellipse-outline'}
+                size={14}
+                color={m.taken ? GREEN : '#bbb'}
+              />
+              <Text style={styles.slotMed}>
+                {m.name} · {parseMedicationTime(m.time)?.label ?? m.time || '—'}
+              </Text>
             </View>
-          </View>
-        ))}
-      </ScrollView>
+          ))
+        )}
+      </View>
     );
   };
 
-  const body = () => {
-    if (loading) {
+  const ScheduleScreen = () => {
+    const list = selectedId ? people.filter(p => p.firebase_uid === selectedId) : people;
+    if (list.length === 0) {
       return (
         <View style={styles.center}>
-          <ActivityIndicator color={GREEN} size="large" />
+          <AppIcon name="calendar-outline" size={40} color="#ccc" />
+          <Text style={styles.emptyTitle}>No schedules yet</Text>
+          <Text style={styles.emptySub}>Link a family member to see their medication times.</Text>
         </View>
       );
     }
-
-    if (tab === 'Home') {
-      return (
-        <ScrollView contentContainerStyle={styles.scrollPad}>
-          <View style={styles.greetingCard}>
-            <AppIcon name="people-outline" size={28} color={GREEN} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.greetingTitle}>Supporting your family</Text>
-              <Text style={styles.greetingSub}>Hi {displayName} — keep loved ones on track with gentle reminders.</Text>
-            </View>
-          </View>
-          <View style={styles.statsRow}>
-            <StatTile icon="people-outline" value={String(people.length)} label="Linked people" />
-            <StatTile icon="medical-outline" value={String(totalMedsToday)} label="Meds today" />
-            <StatTile icon="checkmark-circle-outline" value={String(takenToday)} label="Taken" />
-          </View>
-          {people.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No family linked yet</Text>
-              <Text style={styles.emptySub}>Link a patient with their code or email.</Text>
-              <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowLink(true)}>
-                <Text style={styles.primaryBtnText}>Link family member</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            people.map(p => renderPersonCard(p))
-          )}
-        </ScrollView>
-      );
-    }
-
-    if (tab === 'Family') {
-      return (
-        <ScrollView contentContainerStyle={styles.scrollPad}>
-          <TouchableOpacity style={styles.linkBanner} onPress={() => setShowLink(true)}>
-            <AppIcon name="link-outline" size={22} color="#fff" />
-            <Text style={styles.linkBannerText}>Link another family member</Text>
-          </TouchableOpacity>
-          {linkRequests.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>Pending requests</Text>
-              {linkRequests.map(req => (
-                <View key={req.id} style={styles.reqCard}>
-                  <Text style={styles.reqTitle}>Link request</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                    <TouchableOpacity
-                      style={styles.primaryBtn}
-                      onPress={() => acceptLinkRequest(req.id, uid).then(loadPeople)}
-                    >
-                      <Text style={styles.primaryBtnText}>Accept</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.actionBtnOutline}
-                      onPress={() => rejectLinkRequest(req.id, { caretaker_uid: uid }).then(loadPeople)}
-                    >
-                      <Text style={styles.actionBtnOutlineText}>Decline</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </>
-          )}
-          {people.map(p => renderPersonCard(p))}
-        </ScrollView>
-      );
-    }
-
-    if (tab === 'Schedule') return renderSchedule();
-
     return (
       <ScrollView contentContainerStyle={styles.scrollPad}>
-        <Text style={styles.sectionTitle}>Account</Text>
-        <MenuRow
-          icon="swap-horizontal-outline"
-          label="Switch to Caregiver Dashboard"
-          sub="Full professional view with patients table, alerts, and analytics"
-          onPress={() => {
-            Alert.alert(
-              'Caregiver mode',
-              'Open the full caregiver dashboard? You can return to family view anytime from Manage.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Switch', onPress: onSwitchToCaregiver },
-              ],
-            );
-          }}
-        />
-        <MenuRow icon="link-outline" label="Link family member" sub="Redeem a patient link code" onPress={() => setShowLink(true)} />
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-          <Text style={styles.logoutText}>Log out</Text>
-        </TouchableOpacity>
-        <Text style={styles.version}>{APP_NAME} v1.0.1</Text>
+        <Text style={styles.sectionTitle}>Today&apos;s schedules</Text>
+        {list.map(person => {
+          const all = (medsByPerson[person.firebase_uid] || []).filter(m => !m.suspended);
+          const unscheduled = all.filter(m => medicationTimeBucket(m.time) === null);
+          return (
+            <View key={person.firebase_uid} style={styles.scheduleCard}>
+              <Text style={styles.scheduleName}>{person.full_name ?? person.email}</Text>
+              <View style={styles.slotRow}>
+                {renderScheduleSlot(person, 'Morning')}
+                {renderScheduleSlot(person, 'Afternoon')}
+                {renderScheduleSlot(person, 'Evening')}
+              </View>
+              {unscheduled.length > 0 && (
+                <View style={styles.unscheduled}>
+                  <Text style={styles.unscheduledLabel}>Other times</Text>
+                  {unscheduled.map(m => (
+                    <Text key={m.id} style={styles.slotMed}>
+                      {m.name} · {m.time || 'No time set'}
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </View>
+          );
+        })}
       </ScrollView>
     );
   };
 
+  const HomeScreen = () => (
+    <ScrollView contentContainerStyle={styles.scrollPad}>
+      <View style={styles.greetingCard}>
+        <View style={styles.cardAccent} />
+        <View style={styles.greetingIconWrap}>
+          <AppIcon name="people-outline" size={28} color={GREEN} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.greetingTitle}>Supporting your family</Text>
+          <Text style={styles.greetingSub}>
+            Hi {displayName} — keep loved ones on track with gentle reminders.
+          </Text>
+        </View>
+      </View>
+      <View style={styles.statsRow}>
+        <StatTile icon="people-outline" value={String(people.length)} label="Linked people" />
+        <StatTile icon="medical-outline" value={String(totalMedsToday)} label="Meds today" />
+        <StatTile icon="checkmark-circle-outline" value={String(takenToday)} label="Taken" />
+      </View>
+      {people.length === 0 ? (
+        <View style={styles.empty}>
+          <AppIcon name="link-outline" size={36} color={GREEN} />
+          <Text style={styles.emptyTitle}>No family linked yet</Text>
+          <Text style={styles.emptySub}>Link a patient with their code or accept their request.</Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowLink(true)}>
+            <Text style={styles.primaryBtnText}>Link family member</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        people.map(p => renderPersonCard(p))
+      )}
+      <MenuRow
+        icon="calendar-outline"
+        label="Schedule & calendar"
+        sub="View all reminders"
+        onPress={() => setTab('Schedule')}
+      />
+    </ScrollView>
+  );
+
+  const FamilyScreen = () => (
+    <ScrollView contentContainerStyle={styles.scrollPad}>
+      <TouchableOpacity style={styles.linkBanner} onPress={() => setShowLink(true)}>
+        <AppIcon name="link-outline" size={22} color="#fff" />
+        <Text style={styles.linkBannerText}>Link family member / patient</Text>
+        <AppIcon name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
+      </TouchableOpacity>
+      {people.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptySub}>Open Link to redeem a code or review patient requests.</Text>
+        </View>
+      ) : (
+        people.map(p => renderPersonCard(p))
+      )}
+    </ScrollView>
+  );
+
+  const ManageScreen = () => (
+    <ScrollView contentContainerStyle={styles.scrollPad}>
+      <Text style={styles.sectionTitle}>Account</Text>
+      <MenuRow
+        icon="swap-horizontal-outline"
+        label="Switch to Caregiver Dashboard"
+        sub="Full professional view with patients table, alerts, and analytics"
+        onPress={() => {
+          Alert.alert(
+            'Caregiver mode',
+            'Open the full caregiver dashboard? You can return to family view anytime from Manage.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Switch', onPress: onSwitchToCaregiver },
+            ],
+          );
+        }}
+      />
+      <MenuRow
+        icon="link-outline"
+        label="Link family member / patient"
+        sub="Code, email request, or pending patient requests"
+        onPress={() => setShowLink(true)}
+      />
+      <MenuRow
+        icon="book-outline"
+        label="Show tutorial"
+        sub="Learn what each tab does"
+        onPress={() => { setTutorialIdx(0); setShowTutorial(true); }}
+      />
+      <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowLogoutModal(true)}>
+        <AppIcon name="log-out-outline" size={22} color="#c62828" />
+        <Text style={styles.logoutText}>Log out</Text>
+      </TouchableOpacity>
+      <Text style={styles.version}>{APP_NAME} v1.0.1</Text>
+    </ScrollView>
+  );
+
+  const headerTitle = tab === 'Home' ? 'Family care' : tab;
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <AppHeader title="Family care" subtitle={`Hi ${displayName}`} />
-      <View style={[styles.body, isTablet && styles.bodyTablet]}>{body()}</View>
-      <View style={[styles.tabBar, { paddingBottom: insets.bottom + 6 }]}>
-        {TABS.map(t => (
-          <TouchableOpacity key={t} style={styles.tabItem} onPress={() => setTab(t)}>
-            <Text style={[styles.tabLabel, tab === t && styles.tabLabelActive]}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <LinkPatientModal visible={showLink} onClose={() => setShowLink(false)} caretakerUid={uid} onLinked={loadPeople} />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <AppHeader title={headerTitle} subtitle={`Hi ${displayName}`} />
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={GREEN} size="large" />
+        </View>
+      ) : (
+        <SwipeTabHost
+          tabs={(['Home', 'Family', 'Schedule', 'Manage'] as Tab[]).map(t => ({
+            key: t,
+            icon: FAMILY_TAB_ICONS[t],
+          }))}
+          activeTab={tab}
+          onTabChange={setTab}
+          bottomInset={insets.bottom || 10}
+          iconOnly
+        >
+          <HomeScreen />
+          <FamilyScreen />
+          <ScheduleScreen />
+          <ManageScreen />
+        </SwipeTabHost>
+      )}
+      <LinkPatientModal
+        visible={showLink}
+        onClose={() => { setShowLink(false); loadPeople(); }}
+        caretakerUid={uid}
+        onLinked={loadPeople}
+      />
+      <NavTutorialOverlay
+        visible={showTutorial}
+        steps={FAMILY_TUTORIAL}
+        index={tutorialIdx}
+        tabs={(['Home', 'Family', 'Schedule', 'Manage'] as Tab[]).map(t => ({
+          key: t,
+          icon: FAMILY_TAB_ICONS[t],
+          label: t,
+        }))}
+        activeTab={tab}
+        onSkip={async () => {
+          setShowTutorial(false);
+          await setTutorialDone('family', uid);
+        }}
+        onNext={async () => {
+          if (tutorialIdx >= FAMILY_TUTORIAL.length - 1) {
+            setShowTutorial(false);
+            await setTutorialDone('family', uid);
+          } else {
+            setTutorialIdx(i => i + 1);
+          }
+        }}
+      />
+      <LogoutModal
+        visible={showLogoutModal}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={() => {
+          setShowLogoutModal(false);
+          onLogout();
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#f0f4f0' },
-  body: { flex: 1 },
-  bodyTablet: { maxWidth: 900, alignSelf: 'center', width: '100%' },
+  root: { flex: 1, backgroundColor: '#ffffff' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 },
   scrollPad: { padding: 16, gap: 14, paddingBottom: 32 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   greetingCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 16,
-    flexDirection: 'row', gap: 12, alignItems: 'center',
-    borderLeftWidth: 4, borderLeftColor: GREEN,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  cardAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: GREEN,
+  },
+  greetingIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: GREEN_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   greetingTitle: { fontSize: TEXT.lg, fontWeight: '800', color: '#222' },
   greetingSub: { fontSize: TEXT.sm, color: '#666', marginTop: 4, lineHeight: 22 },
   statsRow: { flexDirection: 'row', gap: 10 },
   personCard: {
-    backgroundColor: '#fff', borderRadius: 16, padding: 16,
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   personRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   avatar: {
-    width: 48, height: 48, borderRadius: 24, backgroundColor: GREEN_LIGHT,
-    alignItems: 'center', justifyContent: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: GREEN_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: { fontSize: TEXT.lg, fontWeight: '800', color: GREEN },
   personName: { fontSize: TEXT.md, fontWeight: '800', color: '#222' },
   personSub: { fontSize: TEXT.sm, color: '#777', marginTop: 4 },
   personActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  actionBtn: { flex: 1, backgroundColor: GREEN, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  actionBtn: {
+    flex: 1,
+    backgroundColor: GREEN,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
   actionBtnText: { color: '#fff', fontWeight: '800', fontSize: TEXT.sm },
   actionBtnOutline: {
-    flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: 'center',
-    borderWidth: 1.5, borderColor: GREEN, backgroundColor: '#fff',
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: GREEN,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
   },
   actionBtnOutlineText: { color: GREEN, fontWeight: '800', fontSize: TEXT.sm },
   linkBanner: {
-    backgroundColor: GREEN, borderRadius: 14, padding: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: GREEN,
+    borderRadius: 14,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  linkBannerText: { color: '#fff', fontWeight: '800', fontSize: TEXT.md },
+  linkBannerText: { flex: 1, color: '#fff', fontWeight: '800', fontSize: TEXT.md },
   sectionTitle: { fontSize: TEXT.md, fontWeight: '800', color: '#444' },
-  scheduleCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14 },
+  scheduleCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
   scheduleName: { fontSize: TEXT.md, fontWeight: '800', color: '#222', marginBottom: 10 },
   slotRow: { flexDirection: 'row', gap: 8 },
-  slot: { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10 },
-  slotLabel: { fontSize: TEXT.sm, fontWeight: '800', color: '#444', marginBottom: 6 },
+  slot: { flex: 1, backgroundColor: '#f8faf8', borderRadius: 10, padding: 10, minHeight: 72 },
+  slotHead: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
+  slotLabel: { fontSize: TEXT.sm, fontWeight: '800', color: '#444' },
   slotEmpty: { fontSize: TEXT.xs, color: '#bbb' },
-  slotMed: { fontSize: TEXT.sm, color: '#333', marginTop: 4, lineHeight: 20 },
+  slotMedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  slotMed: { fontSize: TEXT.sm, color: '#333', flex: 1, lineHeight: 18 },
+  unscheduled: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: theme.border,
+  },
+  unscheduledLabel: { fontSize: TEXT.sm, fontWeight: '800', color: theme.textMuted, marginBottom: 6 },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   emptyTitle: { fontSize: TEXT.lg, fontWeight: '800', color: '#333' },
-  emptySub: { fontSize: TEXT.sm, color: '#888', textAlign: 'center' },
+  emptySub: { fontSize: TEXT.sm, color: '#888', textAlign: 'center', lineHeight: 20 },
   primaryBtn: { backgroundColor: GREEN, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 8 },
   primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: TEXT.sm },
-  reqCard: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderLeftWidth: 4, borderLeftColor: GREEN },
-  reqTitle: { fontSize: TEXT.md, fontWeight: '700', color: '#222' },
   logoutBtn: {
-    marginTop: 20, backgroundColor: '#fff', borderRadius: 12, padding: 14,
-    borderWidth: 1.5, borderColor: '#ffcdd2', alignItems: 'center',
+    marginTop: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#ffcdd2',
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
   },
   logoutText: { color: '#c62828', fontWeight: '800', fontSize: TEXT.md },
   version: { textAlign: 'center', color: '#ccc', fontSize: TEXT.xs, marginTop: 20 },
-  tabBar: {
-    flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 8,
-  },
-  tabItem: { flex: 1, alignItems: 'center' },
-  tabLabel: { fontSize: TEXT.sm, color: '#aaa', fontWeight: '600' },
-  tabLabelActive: { color: GREEN, fontWeight: '800' },
 });

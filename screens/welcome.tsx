@@ -3,7 +3,7 @@ import {
   StatusBar, Dimensions, ImageBackground,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AppIcon from '@/components/AppIcon';
+import AppLogo from '@/components/AppLogo';
 import { APP_NAME } from '@/lib/branding';
 
 interface Props {
@@ -32,9 +32,7 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
         </ImageBackground>
         <View style={[styles.heroContent, { paddingTop: insets.top + 16 }]}>
           <View style={styles.logoRow}>
-            <View style={styles.logoBox}>
-              <AppIcon name="medical" size={28} color="#fff" />
-            </View>
+            <AppLogo size={56} />
             <Text style={styles.brand}>{APP_NAME}</Text>
           </View>
         </View>

@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, ReactNode } from 'react';
+import { useRef, useState, useCallback, useEffect, ReactNode } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Dimensions, NativeSyntheticEvent, NativeScrollEvent,
@@ -42,6 +42,15 @@ export default function SwipeTabHost<T extends string>({
     scrollRef.current?.scrollTo({ x: i * width, animated: true });
   }, [width, onTabChange]);
 
+  useEffect(() => {
+    const i = tabs.findIndex(t => t.key === activeTab);
+    if (i < 0) return;
+    setIndex(i);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ x: i * width, animated: true });
+    });
+  }, [activeTab, tabs, width]);
+
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const i = Math.round(e.nativeEvent.contentOffset.x / width);
     if (i >= 0 && i < tabs.length && tabs[i].key !== activeTab) {
@@ -79,6 +88,9 @@ export default function SwipeTabHost<T extends string>({
               accessibilityRole="button"
               accessibilityLabel={tab.label ?? tab.key}
             >
+              <View style={s.indicatorSlot}>
+                {active ? <View style={s.indicator} /> : null}
+              </View>
               <AppIcon name={tab.icon} size={26} color={active ? theme.green : theme.textMuted} />
               {!iconOnly && tab.label && (
                 <Text style={[s.tabLabel, active && s.tabLabelActive]}>{tab.label}</Text>
@@ -107,6 +119,19 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 52,
     paddingVertical: 6,
+  },
+  indicatorSlot: {
+    height: 3,
+    width: 28,
+    marginBottom: 4,
+    borderRadius: 2,
+    justifyContent: 'center',
+  },
+  indicator: {
+    height: 3,
+    width: 28,
+    borderRadius: 2,
+    backgroundColor: theme.green,
   },
   tabLabel: { fontSize: 11, color: theme.textMuted, marginTop: 2 },
   tabLabelActive: { color: theme.green, fontWeight: '700' },

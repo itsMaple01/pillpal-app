@@ -121,6 +121,14 @@ export async function rescheduleMedicationLocalNotifications(
 ) {
   if (Platform.OS === 'web' || isExpoGo()) return;
   try {
+    const { areAppNotificationsEnabled } = await import('@/lib/notificationPrefs');
+    if (!(await areAppNotificationsEnabled())) {
+      const Notifications = await getNotifications();
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      lastScheduleKey = '';
+      await AsyncStorage.removeItem(SCHEDULE_STORAGE_KEY);
+      return;
+    }
     let leadMinutes = 5;
     if (patientUid) {
       try {

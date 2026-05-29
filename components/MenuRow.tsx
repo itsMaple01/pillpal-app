@@ -42,7 +42,7 @@ export default function MenuRow({
           <Text style={s.badgeText}>{badge}</Text>
         </View>
       )}
-      {showChevron && onPress && <AppIcon name="chevron-forward" size={18} color="#ccc" />}
+      {showChevron && !!onPress && <AppIcon name="chevron-forward" size={18} color="#ccc" />}
     </>
   );
 

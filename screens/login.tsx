@@ -2,12 +2,17 @@ import { useState, useRef, type ComponentProps } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
-  KeyboardAvoidingView, Platform, ScrollView, Dimensions,
+  KeyboardAvoidingView, Platform, ScrollView,
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import AppIcon from '@/components/AppIcon';
+import AppLogo from '@/components/AppLogo';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { validateEmail } from '@/utils/algorithms/linear';
 import DateOfBirthField, { ageFromDateOfBirth } from '@/components/DateOfBirthField';
@@ -43,7 +48,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
   const [fullName, setFullName] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState<string | null>(null);
   const pagerRef = useRef<ScrollView>(null);
-  const pageWidth = Dimensions.get('window').width - 48;
+  const [formWidth, setFormWidth] = useState(0);
   const [healthCondition, setHealthCondition] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -94,12 +99,35 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
 
   const goTab = (t: 'login' | 'signup') => {
     setTab(t);
-    pagerRef.current?.scrollTo({ x: t === 'login' ? 0 : pageWidth, animated: true });
+    if (formWidth > 0) {
+      pagerRef.current?.scrollTo({ x: t === 'login' ? 0 : formWidth, animated: true });
+    }
   };
 
   const onPagerEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const i = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+    if (formWidth <= 0) return;
+    const i = Math.round(e.nativeEvent.contentOffset.x / formWidth);
     setTab(i === 0 ? 'login' : 'signup');
+  };
+
+  const handleForgotPassword = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || !validateEmail(trimmed)) {
+      Alert.alert(
+        'Reset password',
+        'Enter the email address for your account in the Email field, then tap Forgot password again.',
+      );
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, trimmed);
+      Alert.alert(
+        'Check your email',
+        `We sent a password reset link to ${trimmed}. Open the link to choose a new password.`,
+      );
+    } catch (error: any) {
+      Alert.alert('Could not send reset email', error?.message ?? 'Please try again.');
+    }
   };
 
   return (
@@ -123,9 +151,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
         )}
 
         <View style={styles.header}>
-          <View style={styles.logoBox}>
-            <AppIcon name="medical" size={44} color="#fff" />
-          </View>
+          <AppLogo size={72} style={{ marginBottom: 12 }} />
           <Text style={styles.appName}>{APP_NAME}</Text>
           <Text style={styles.tagline}>{APP_TAGLINE}</Text>
         </View>
@@ -147,15 +173,20 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
             </TouchableOpacity>
           </View>
 
+          <View
+            style={styles.formPagerWrap}
+            onLayout={e => setFormWidth(e.nativeEvent.layout.width)}
+          >
           <ScrollView
             ref={pagerRef}
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={onPagerEnd}
-            style={{ width: pageWidth }}
+            style={{ width: formWidth || '100%' }}
+            scrollEnabled={formWidth > 0}
           >
-            <View style={{ width: pageWidth, gap: 0 }}>
+            <View style={{ width: formWidth || 1, gap: 0 }}>
               <View style={styles.fieldGroupTight}>
                 <FieldLabel icon="mail-outline" text="Email" />
                 <TextInput
@@ -170,7 +201,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
               </View>
               <View style={styles.fieldGroup}>
                 <FieldLabel icon="lock-closed-outline" text="Password" />
-                <View style={styles.passwordRow}>
+                <View style={styles.passwordWrap}>
                   <TextInput
                     style={[styles.input, styles.passwordInput]}
                     placeholder="At least 6 characters"
@@ -179,17 +210,21 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
                     onChangeText={setPassword}
                     secureTextEntry={!showPassword}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
                     <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
                   </TouchableOpacity>
                 </View>
               </View>
-              <TouchableOpacity style={styles.forgotBtn}>
+              <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword}>
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={{ width: pageWidth }}>
+            <View style={{ width: formWidth || 1 }}>
               <View style={styles.fieldGroupTight}>
                 <FieldLabel icon="person-outline" text="Full name" />
                 <TextInput
@@ -226,7 +261,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
               </View>
               <View style={styles.fieldGroup}>
                 <FieldLabel icon="lock-closed-outline" text="Password" />
-                <View style={styles.passwordRow}>
+                <View style={styles.passwordWrap}>
                   <TextInput
                     style={[styles.input, styles.passwordInput]}
                     placeholder="At least 6 characters"
@@ -235,13 +270,18 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
                     onChangeText={setPassword}
                     secureTextEntry={!showPassword}
                   />
-                  <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+                  <TouchableOpacity
+                    style={styles.eyeBtn}
+                    onPress={() => setShowPassword(!showPassword)}
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  >
                     <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
                   </TouchableOpacity>
                 </View>
               </View>
             </View>
           </ScrollView>
+          </View>
 
           <TouchableOpacity style={styles.submitBtn} onPress={handleAuth} disabled={loading}>
             {loading ? (
@@ -324,9 +364,17 @@ const styles = StyleSheet.create({
     padding: 14, fontSize: 15, color: '#222',
     borderWidth: 1, borderColor: '#eee', width: '100%',
   },
-  passwordRow: { flexDirection: 'row', alignItems: 'center' },
-  passwordInput: { flex: 1 },
-  eyeBtn: { position: 'absolute', right: 12 },
+  formPagerWrap: { width: '100%', overflow: 'hidden' },
+  passwordWrap: { position: 'relative', width: '100%' },
+  passwordInput: { paddingRight: 48 },
+  eyeBtn: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
   forgotBtn: { alignSelf: 'flex-end', marginBottom: 20, marginTop: -8 },
   forgotText: { color: GREEN, fontSize: 13, fontWeight: '500' },
   submitBtn: {

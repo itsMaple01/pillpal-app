@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import AppIcon from '@/components/AppIcon';
+import AppLogo from '@/components/AppLogo';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
 
@@ -17,9 +17,7 @@ export default function AppHeader({ title, subtitle, rightAction, paddingTop = 1
   return (
     <View style={[s.header, { paddingTop }]}>
       <View style={s.row}>
-        <View style={s.logoMark}>
-          <AppIcon name="medical" size={22} color={GREEN} />
-        </View>
+        <AppLogo size={44} />
         <View style={{ flex: 1 }}>
           <Text style={s.brand}>{APP_NAME}</Text>
           <Text style={s.title}>{title}</Text>
@@ -37,7 +35,7 @@ export default function AppHeader({ title, subtitle, rightAction, paddingTop = 1
 
 const s = StyleSheet.create({
   header: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
@@ -48,16 +46,6 @@ const s = StyleSheet.create({
     elevation: 2,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logoMark: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#e8f5e9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#cfe8d4',
-  },
   brand: {
     fontSize: TEXT.xs,
     fontWeight: '800',
