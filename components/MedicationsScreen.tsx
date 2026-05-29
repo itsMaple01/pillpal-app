@@ -127,13 +127,19 @@ export default function MedicationsScreen({
                 {!readOnly && (onRefill || onSuspend) && (
                   <View style={s.quickRow}>
                     {onRefill && (
-                      <TouchableOpacity style={s.chip} onPress={() => onRefill(med.id)}>
+                      <TouchableOpacity
+                        style={s.chip}
+                        onPress={(e) => { e.stopPropagation?.(); onRefill(med.id); }}
+                      >
                         <AppIcon name="refresh-outline" size={14} color={theme.green} />
                         <Text style={s.chipText}>Refill</Text>
                       </TouchableOpacity>
                     )}
                     {onSuspend && (
-                      <TouchableOpacity style={s.chip} onPress={() => onSuspend(med)}>
+                      <TouchableOpacity
+                        style={s.chip}
+                        onPress={(e) => { e.stopPropagation?.(); onSuspend(med); }}
+                      >
                         <AppIcon name="pause-circle-outline" size={14} color={theme.green} />
                         <Text style={s.chipText}>{med.suspended ? 'Resume' : 'Pause'}</Text>
                       </TouchableOpacity>

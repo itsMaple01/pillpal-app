@@ -19,6 +19,8 @@ import MenuRow from '@/components/MenuRow';
 import StatTile from '@/components/StatTile';
 import SwipeTabHost from '@/components/SwipeTabHost';
 import NavTutorialOverlay from '@/components/NavTutorialOverlay';
+import SwitchModeModal from '@/components/SwitchModeModal';
+import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -71,6 +73,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialIdx, setTutorialIdx] = useState(0);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showSwitchMode, setShowSwitchMode] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(new Date());
 
   const loadPeople = useCallback(async () => {
     try {
@@ -197,41 +201,13 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     );
   };
 
-  const renderScheduleSlot = (person: LinkedPerson, slot: 'Morning' | 'Afternoon' | 'Evening') => {
-    const all = (medsByPerson[person.firebase_uid] || []).filter(m => !m.suspended);
-    const meds = all.filter(m => medicationTimeBucket(m.time) === slot);
-    return (
-      <View key={slot} style={styles.slot}>
-        <View style={styles.slotHead}>
-          <AppIcon
-            name={slot === 'Morning' ? 'sunny-outline' : slot === 'Afternoon' ? 'partly-sunny-outline' : 'moon-outline'}
-            size={16}
-            color={GREEN}
-          />
-          <Text style={styles.slotLabel}>{slot}</Text>
-        </View>
-        {meds.length === 0 ? (
-          <Text style={styles.slotEmpty}>No meds</Text>
-        ) : (
-          meds.map(m => (
-            <View key={m.id} style={styles.slotMedRow}>
-              <AppIcon
-                name={m.taken ? 'checkmark-circle' : 'ellipse-outline'}
-                size={14}
-                color={m.taken ? GREEN : '#bbb'}
-              />
-              <Text style={styles.slotMed}>
-                {m.name} · {parseMedicationTime(m.time)?.label ?? m.time || '—'}
-              </Text>
-            </View>
-          ))
-        )}
-      </View>
-    );
-  };
-
   const ScheduleScreen = () => {
     const list = selectedId ? people.filter(p => p.firebase_uid === selectedId) : people;
+    const markedDates = people.flatMap(p =>
+      (medsByPerson[p.firebase_uid] || [])
+        .filter(m => !m.suspended)
+        .map(() => new Date().toISOString().slice(0, 10)),
+    );
     if (list.length === 0) {
       return (
         <View style={styles.center}>
@@ -243,27 +219,44 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     }
     return (
       <ScrollView contentContainerStyle={styles.scrollPad}>
-        <Text style={styles.sectionTitle}>Today&apos;s schedules</Text>
+        <WeekCalendarStrip
+          selectedDate={scheduleDate}
+          onSelectDate={setScheduleDate}
+          markedDates={markedDates}
+        />
+        <Text style={styles.sectionTitle}>Schedule</Text>
         {list.map(person => {
           const all = (medsByPerson[person.firebase_uid] || []).filter(m => !m.suspended);
-          const unscheduled = all.filter(m => medicationTimeBucket(m.time) === null);
+          const sorted = [...all].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
           return (
             <View key={person.firebase_uid} style={styles.scheduleCard}>
               <Text style={styles.scheduleName}>{person.full_name ?? person.email}</Text>
-              <View style={styles.slotRow}>
-                {renderScheduleSlot(person, 'Morning')}
-                {renderScheduleSlot(person, 'Afternoon')}
-                {renderScheduleSlot(person, 'Evening')}
-              </View>
-              {unscheduled.length > 0 && (
-                <View style={styles.unscheduled}>
-                  <Text style={styles.unscheduledLabel}>Other times</Text>
-                  {unscheduled.map(m => (
-                    <Text key={m.id} style={styles.slotMed}>
-                      {m.name} · {m.time || 'No time set'}
-                    </Text>
-                  ))}
-                </View>
+              {sorted.length === 0 ? (
+                <Text style={styles.slotEmpty}>No medications scheduled</Text>
+              ) : (
+                sorted.map(m => {
+                  const bucket = medicationTimeBucket(m.time);
+                  return (
+                    <View key={m.id} style={styles.scheduleMedRow}>
+                      <View style={styles.scheduleTimeBox}>
+                        <Text style={styles.scheduleTimeText}>
+                          {(parseMedicationTime(m.time)?.label ?? m.time) || '—'}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.scheduleMedName}>{m.name}</Text>
+                        <Text style={styles.scheduleMedSub}>
+                          {m.dosage}{bucket ? ` · ${bucket}` : ''}
+                        </Text>
+                      </View>
+                      <AppIcon
+                        name={m.taken ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={18}
+                        color={m.taken ? GREEN : '#ccc'}
+                      />
+                    </View>
+                  );
+                })
               )}
             </View>
           );
@@ -336,16 +329,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         icon="swap-horizontal-outline"
         label="Switch to Caregiver Dashboard"
         sub="Full professional view with patients table, alerts, and analytics"
-        onPress={() => {
-          Alert.alert(
-            'Caregiver mode',
-            'Open the full caregiver dashboard? You can return to family view anytime from Manage.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Switch', onPress: onSwitchToCaregiver },
-            ],
-          );
-        }}
+        onPress={() => setShowSwitchMode(true)}
       />
       <MenuRow
         icon="link-outline"
@@ -421,6 +405,16 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           } else {
             setTutorialIdx(i => i + 1);
           }
+        }}
+        onBack={() => setTutorialIdx(i => Math.max(0, i - 1))}
+      />
+      <SwitchModeModal
+        visible={showSwitchMode}
+        mode="toCaregiver"
+        onCancel={() => setShowSwitchMode(false)}
+        onConfirm={() => {
+          setShowSwitchMode(false);
+          onSwitchToCaregiver();
         }}
       />
       <LogoutModal
@@ -531,20 +525,26 @@ const styles = StyleSheet.create({
     borderColor: theme.border,
   },
   scheduleName: { fontSize: TEXT.md, fontWeight: '800', color: '#222', marginBottom: 10 },
-  slotRow: { flexDirection: 'row', gap: 8 },
-  slot: { flex: 1, backgroundColor: '#f8faf8', borderRadius: 10, padding: 10, minHeight: 72 },
-  slotHead: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6 },
-  slotLabel: { fontSize: TEXT.sm, fontWeight: '800', color: '#444' },
-  slotEmpty: { fontSize: TEXT.xs, color: '#bbb' },
-  slotMedRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  slotMed: { fontSize: TEXT.sm, color: '#333', flex: 1, lineHeight: 18 },
-  unscheduled: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
+  scheduleMedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
   },
-  unscheduledLabel: { fontSize: TEXT.sm, fontWeight: '800', color: theme.textMuted, marginBottom: 6 },
+  scheduleTimeBox: {
+    backgroundColor: theme.greenLight,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  scheduleTimeText: { fontSize: TEXT.sm, fontWeight: '800', color: theme.greenDark },
+  scheduleMedName: { fontSize: TEXT.md, fontWeight: '800', color: '#222' },
+  scheduleMedSub: { fontSize: TEXT.sm, color: theme.textSecondary, marginTop: 2 },
+  slotEmpty: { fontSize: TEXT.sm, color: theme.textMuted, paddingVertical: 8 },
   empty: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   emptyTitle: { fontSize: TEXT.lg, fontWeight: '800', color: '#333' },
   emptySub: { fontSize: TEXT.sm, color: '#888', textAlign: 'center', lineHeight: 20 },

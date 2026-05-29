@@ -115,6 +115,15 @@ export async function presentLocalNotification(title: string, body: string) {
   }
 }
 
+export async function forceRescheduleMedicationLocalNotifications(
+  meds: PatientMedication[],
+  patientUid?: string,
+) {
+  lastScheduleKey = '';
+  await AsyncStorage.removeItem(SCHEDULE_STORAGE_KEY);
+  await rescheduleMedicationLocalNotifications(meds, patientUid);
+}
+
 export async function rescheduleMedicationLocalNotifications(
   meds: PatientMedication[],
   patientUid?: string,
@@ -158,8 +167,8 @@ export async function rescheduleMedicationLocalNotifications(
       const when = subtractMinutes(parsed.hour, parsed.minute, leadMinutes);
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: 'GabayRa — Medication reminder',
-          body: `Time for ${med.name} (${med.dosage}) in ${leadMinutes} min`,
+          title: 'GabayRa',
+          body: `${med.name} · due in ${leadMinutes} min`,
           sound: true,
           data: { medicationId: med.id, type: 'med_reminder' },
         },

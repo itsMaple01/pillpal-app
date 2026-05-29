@@ -1,59 +1,44 @@
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  StatusBar, Dimensions, ImageBackground,
+  View, Text, TouchableOpacity, StyleSheet, StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppLogo from '@/components/AppLogo';
-import { APP_NAME } from '@/lib/branding';
+import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
+import { theme } from '@/lib/theme';
 
 interface Props {
   onGetStarted: () => void;
   onLogin: () => void;
 }
 
-const GREEN = '#2d7a3a';
-const GREEN_DARK = '#1e5c28';
-
 export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
   const insets = useSafeAreaInsets();
-  const { height } = Dimensions.get('window');
-  const heroHeight = Math.min(height * 0.52, 420);
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={GREEN_DARK} />
-      <View style={[styles.hero, { height: heroHeight }]}>
-        <ImageBackground
-          source={require('@/assets/welcome-hero.png')}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-        >
-          <View style={styles.heroOverlay} />
-        </ImageBackground>
-        <View style={[styles.heroContent, { paddingTop: insets.top + 16 }]}>
-          <View style={styles.logoRow}>
-            <AppLogo size={56} />
-            <Text style={styles.brand}>{APP_NAME}</Text>
-          </View>
-        </View>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <View style={[styles.top, { paddingTop: insets.top + 32 }]}>
+        <AppLogo size={88} />
+        <Text style={styles.brand}>{APP_NAME}</Text>
+        <Text style={styles.tagline}>{APP_TAGLINE}</Text>
       </View>
 
-      <View style={styles.lower}>
+      <View style={[styles.bottom, { paddingBottom: insets.bottom + 24 }]}>
         <Text style={styles.headline}>
-          Join families already taking control of their medications
+          Stay on track with reminders that keep you and your family connected.
         </Text>
 
         <TouchableOpacity style={styles.primaryBtn} onPress={onGetStarted} activeOpacity={0.9}>
-          <Text style={styles.primaryBtnText}>GET STARTED</Text>
+          <Text style={styles.primaryBtnText}>Get started</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={onLogin} style={styles.loginRow}>
           <Text style={styles.loginText}>
-            Already have an account? <Text style={styles.loginLink}>Log In</Text>
+            Already have an account? <Text style={styles.loginLink}>Log in</Text>
           </Text>
         </TouchableOpacity>
 
-        <Text style={[styles.legal, { paddingBottom: insets.bottom + 12 }]}>
+        <Text style={styles.legal}>
           By continuing, you agree to our Terms and Privacy Policy
         </Text>
       </View>
@@ -62,60 +47,43 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: GREEN_DARK },
-  hero: { width: '100%', overflow: 'hidden' },
-  heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(30,92,40,0.78)',
-  },
-  heroContent: { flex: 1, paddingHorizontal: 24 },
-  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  logoBox: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  brand: { fontSize: 26, fontWeight: '800', color: '#fff' },
-  lower: {
+  root: { flex: 1, backgroundColor: '#ffffff' },
+  top: {
     flex: 1,
-    backgroundColor: GREEN,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  brand: { fontSize: 32, fontWeight: '800', color: theme.greenDark, marginTop: 16 },
+  tagline: { fontSize: 15, color: theme.textSecondary, marginTop: 6 },
+  bottom: {
     paddingHorizontal: 28,
-    paddingTop: 28,
-    justifyContent: 'flex-start',
+    paddingTop: 8,
+    gap: 16,
   },
   headline: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
-    lineHeight: 30,
+    color: theme.text,
+    lineHeight: 28,
     textAlign: 'center',
-    marginBottom: 28,
+    marginBottom: 8,
   },
   primaryBtn: {
-    backgroundColor: '#fff',
+    backgroundColor: theme.green,
     borderRadius: 16,
-    paddingVertical: 18,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
   },
-  primaryBtnText: {
-    color: GREEN,
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  loginRow: { alignItems: 'center', marginBottom: 24 },
-  loginText: { color: 'rgba(255,255,255,0.9)', fontSize: 15 },
-  loginLink: { fontWeight: '800', color: '#fff' },
+  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  loginRow: { alignItems: 'center', paddingVertical: 4 },
+  loginText: { color: theme.textSecondary, fontSize: 15 },
+  loginLink: { fontWeight: '800', color: theme.green },
   legal: {
-    marginTop: 'auto',
     textAlign: 'center',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.55)',
+    color: theme.textMuted,
     lineHeight: 16,
+    marginTop: 4,
   },
 });

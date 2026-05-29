@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { syncUser } from '@/api/index';
+import AppLogo from '@/components/AppLogo';
 import AppIcon from '@/components/AppIcon';
 import { APP_NAME } from '@/lib/branding';
 
@@ -74,24 +75,19 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topSection}>
-            {isTablet && (
-              <View style={styles.logoCircle}>
-                <AppIcon name="medical" size={36} color="#fff" />
-              </View>
-            )}
-            {isTablet && <Text style={styles.appName}>{APP_NAME}</Text>}
+            <AppLogo size={72} style={{ marginBottom: 12 }} />
             <Text style={styles.title}>Who are you?</Text>
-            <Text style={styles.subtitle}>Choose your account type to continue</Text>
+            <Text style={styles.subtitle}>Pick the account that fits how you use GabayRa</Text>
           </View>
 
           <View style={[styles.cardsContainer, isTablet && styles.cardsRow]}>
             <View style={[styles.card, styles.patientCard, isTablet && styles.cardTablet]}>
               <View style={styles.iconCircle}>
-                <AppIcon name="medical" size={32} color={GREEN} />
+                <AppIcon name="person-outline" size={32} color="#fff" />
               </View>
               <Text style={styles.cardTitle}>Patient</Text>
               <Text style={styles.cardDescLight}>
-                Track your medications, set reminders, and monitor your health schedule.
+                I take medications and want reminders, a calendar, and an easy way to link my family.
               </Text>
               <TouchableOpacity
                 style={styles.selectBtn}
@@ -107,11 +103,11 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
 
             <View style={[styles.card, styles.caretakerCard, isTablet && styles.cardTablet]}>
               <View style={[styles.iconCircle, { backgroundColor: '#e8f5e9' }]}>
-                <AppIcon name="people" size={32} color={GREEN_DARK} />
+                <AppIcon name="people-outline" size={32} color={GREEN_DARK} />
               </View>
               <Text style={[styles.cardTitle, { color: GREEN_DARK }]}>Family / Caregiver</Text>
               <Text style={[styles.cardDescLight, { color: '#555' }]}>
-                Support a few loved ones at home. Switch to the full caregiver dashboard anytime in Settings.
+                I support someone else&apos;s meds — start with a simple family view, or switch to the full caregiver dashboard anytime.
               </Text>
               <TouchableOpacity
                 style={[styles.selectBtn, { backgroundColor: GREEN }]}

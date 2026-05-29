@@ -12,7 +12,6 @@ import RoleSelectScreen from './screens/role-select';
 import PatientDashboard from './screens/patient-dashboard';
 import FamilyDashboard from './screens/family-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
-import LogoutModal from './components/LogoutModal';
 import OfflineBanner from './components/OfflineBanner';
 import { setupNotifications } from './lib/pushNotifications';
 
@@ -67,7 +66,6 @@ export default function App() {
   const [uid, setUid] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [role, setRole] = useState<'patient' | 'caretaker' | null>(null);
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [signupProfile, setSignupProfile] = useState<SignupProfile | null>(null);
   const [loginTab, setLoginTab] = useState<LoginTab>('login');
 
@@ -142,11 +140,10 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setShowLogoutModal(true);
+    /* dashboards show their own confirmation modal */
   };
 
   const performLogout = async () => {
-    setShowLogoutModal(false);
     if (uid) {
       await AsyncStorage.removeItem(`role_${uid}`);
     }
@@ -200,28 +197,22 @@ export default function App() {
         />
       )}
       {screen === 'patientDash' && (
-        <PatientDashboard onLogout={handleLogout} uid={uid!} email={email!} />
+        <PatientDashboard onLogout={performLogout} uid={uid!} email={email!} />
       )}
       {screen === 'familyDash' && (
         <FamilyDashboard
           uid={uid!}
-          onLogout={handleLogout}
+          onLogout={performLogout}
           onSwitchToCaregiver={switchToCaregiver}
         />
       )}
       {screen === 'caretakerDash' && (
         <CaretakerDashboard
-          onLogout={handleLogout}
+          onLogout={performLogout}
           uid={uid!}
           onSwitchToFamily={switchToFamily}
         />
       )}
-
-      <LogoutModal
-        visible={showLogoutModal}
-        onConfirm={performLogout}
-        onCancel={() => setShowLogoutModal(false)}
-      />
     </SafeAreaProvider>
   );
 }

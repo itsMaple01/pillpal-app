@@ -186,7 +186,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
             style={{ width: formWidth || '100%' }}
             scrollEnabled={formWidth > 0}
           >
-            <View style={{ width: formWidth || 1, gap: 0 }}>
+            <View style={{ width: formWidth || 1, alignSelf: 'flex-start' }}>
               <View style={styles.fieldGroupTight}>
                 <FieldLabel icon="mail-outline" text="Email" />
                 <TextInput
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: GREEN },
   scroll: {
     flexGrow: 1, alignItems: 'center',
-    justifyContent: 'center', padding: 24,
+    justifyContent: 'flex-start', padding: 24, paddingTop: 40,
   },
   circleTopLeft: {
     position: 'absolute', top: -40, left: -40,
@@ -375,12 +375,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  forgotBtn: { alignSelf: 'flex-end', marginBottom: 20, marginTop: -8 },
+  forgotBtn: { alignSelf: 'flex-end', marginBottom: 8, marginTop: -4 },
   forgotText: { color: GREEN, fontSize: 13, fontWeight: '500' },
   submitBtn: {
     backgroundColor: GREEN, borderRadius: 14,
     padding: 16, alignItems: 'center',
-    marginBottom: 20, marginTop: 4,
+    marginBottom: 16, marginTop: 8,
     shadowColor: GREEN, shadowOpacity: 0.4,
     shadowRadius: 8, elevation: 4,
   },
