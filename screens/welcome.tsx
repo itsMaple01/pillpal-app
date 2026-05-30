@@ -3,6 +3,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppLogo from '@/components/AppLogo';
+import WelcomeBackground from '@/components/WelcomeBackground';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { theme } from '@/lib/theme';
 
@@ -17,13 +18,27 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <WelcomeBackground />
+
       <View style={[styles.top, { paddingTop: insets.top + 32 }]}>
-        <AppLogo size={88} />
+        <AppLogo size={96} />
         <Text style={styles.brand}>{APP_NAME}</Text>
         <Text style={styles.tagline}>{APP_TAGLINE}</Text>
       </View>
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 24 }]}>
+        <View style={styles.featureRow}>
+          <View style={styles.featurePill}>
+            <Text style={styles.featureText}>Reminders</Text>
+          </View>
+          <View style={styles.featurePill}>
+            <Text style={styles.featureText}>Family link</Text>
+          </View>
+          <View style={styles.featurePill}>
+            <Text style={styles.featureText}>Schedule</Text>
+          </View>
+        </View>
+
         <Text style={styles.headline}>
           Stay on track with reminders that keep you and your family connected.
         </Text>
@@ -59,15 +74,30 @@ const styles = StyleSheet.create({
   bottom: {
     paddingHorizontal: 28,
     paddingTop: 8,
-    gap: 16,
+    gap: 14,
   },
+  featureRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  featurePill: {
+    backgroundColor: theme.greenLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  featureText: { fontSize: 12, fontWeight: '700', color: theme.green },
   headline: {
     fontSize: 20,
     fontWeight: '700',
     color: theme.text,
     lineHeight: 28,
     textAlign: 'center',
-    marginBottom: 8,
   },
   primaryBtn: {
     backgroundColor: theme.green,

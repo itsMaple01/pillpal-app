@@ -438,11 +438,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           <PatientSearchBar value={search} onChangeText={setSearch} style={{ flex: 1 }} />
         </View>
 
-        <ScrollView
-          horizontal showsHorizontalScrollIndicator={false}
-          style={styles.filterScroll}
-          contentContainerStyle={{ alignItems: 'center', paddingVertical: 4 }}
-        >
+        <View style={styles.filterWrap}>
           {FILTERS.map(f => (
             <TouchableOpacity
               key={f}
@@ -452,7 +448,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               <Text style={[styles.filterTabText, activeFilter === f && styles.filterTabTextActive]}>{f}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
         {linkRequests.length > 0 && (
           <View style={{ paddingHorizontal: 16, marginBottom: 8, gap: 8 }}>
@@ -1314,8 +1310,21 @@ const styles = StyleSheet.create({
   searchIcon:  { fontSize: 14 },
   searchInput: { flex: 1, fontSize: 14, color: '#222' },
 
-  filterScroll:        { flexGrow: 0 },
-  filterTab:           { paddingHorizontal: 14, borderRadius: 20, marginRight: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd', height: 32, alignItems: 'center', justifyContent: 'center' },
+  filterWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  filterTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
   filterTabActive:     { backgroundColor: GREEN, borderColor: GREEN },
   filterTabText:       { fontSize: 12, color: '#666', fontWeight: '600' },
   filterTabTextActive: { color: '#fff' },

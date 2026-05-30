@@ -44,7 +44,7 @@ import AppLogo from '@/components/AppLogo';
 import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
 import NotificationSettingsModal from '@/components/NotificationSettingsModal';
-import PrivacySecurityModal from '@/components/PrivacySecurityModal';
+import MedicationInventoryModal from '@/components/MedicationInventoryModal';
 import StatTile from '@/components/StatTile';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
@@ -106,6 +106,8 @@ interface AddModalProps {
 }
 
 function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, existingMedicationTimes = [] }: AddModalProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  const timeSectionY = useRef(0);
   const [name,           setName]           = useState('');
   const [dosage,         setDosage]         = useState('');
   const [freqIdx,        setFreqIdx]        = useState(0);
@@ -187,11 +189,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
       <View style={ms.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close add medication" />
         <View style={ms.sheet}>
-          <View style={ms.sheetGrab}>
-            <View style={ms.handle} />
-          </View>
-
-          <View style={ms.heroHeader}>
+          <View style={ms.sheetHeader}>
             <View style={ms.heroLogoRow}>
               <AppLogo size={44} />
               <View style={ms.heroTextCol}>
@@ -200,9 +198,13 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
               </View>
             </View>
             <Text style={ms.heroSub}>Set name, time, and optional end date — reminders sync automatically.</Text>
+            <TouchableOpacity style={ms.closeBtn} onPress={handleClose}>
+              <AppIcon name="close" size={22} color="#888" />
+            </TouchableOpacity>
           </View>
 
           <ScrollView
+            ref={scrollRef}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={ms.scrollContent}
             keyboardShouldPersistTaps="handled"
@@ -317,11 +319,11 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                     <View style={ms.calendar}>
                       <View style={ms.calNav}>
                         <TouchableOpacity onPress={() => setCalMonth(new Date(y, m - 1, 1))}>
-                          <Text style={ms.calNavBtn}>‹</Text>
+                          <AppIcon name="chevron-back" size={20} color={GREEN} />
                         </TouchableOpacity>
                         <Text style={ms.calMonthLabel}>{MONTHS[m]} {y}</Text>
                         <TouchableOpacity onPress={() => setCalMonth(new Date(y, m + 1, 1))}>
-                          <Text style={ms.calNavBtn}>›</Text>
+                          <AppIcon name="chevron-forward" size={20} color={GREEN} />
                         </TouchableOpacity>
                       </View>
                       <View style={ms.calDayRow}>
@@ -368,14 +370,25 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
             </View>
 
             {/* Time Picker */}
-            <View style={ms.fieldGroup}>
+            <View
+              style={ms.fieldGroup}
+              onLayout={e => { timeSectionY.current = e.nativeEvent.layout.y; }}
+            >
               <View style={ms.labelRow}>
                 <AppIcon name="time-outline" size={16} color={GREEN} />
                 <Text style={ms.label}>TIME *</Text>
               </View>
               <TouchableOpacity
                 style={[ms.dropdown, showTimePicker && ms.dropdownOpen]}
-                onPress={() => setShowTimePicker(v => !v)}
+                onPress={() => {
+                  const next = !showTimePicker;
+                  setShowTimePicker(next);
+                  if (next) {
+                    setTimeout(() => {
+                      scrollRef.current?.scrollTo({ y: Math.max(0, timeSectionY.current - 8), animated: true });
+                    }, 80);
+                  }
+                }}
                 activeOpacity={0.8}
               >
                 <AppIcon name="time-outline" size={18} color={GREEN} />
@@ -573,6 +586,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [showPrivacySettings, setShowPrivacySettings] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deletingMed, setDeletingMed] = useState(false);
+  const [showInventory,   setShowInventory]   = useState(false);
+  const [inventoryMedId,  setInventoryMedId]  = useState<string | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // ── Ref so callbacks always see current medications without stale closures ──
@@ -826,17 +841,20 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     setDeleteTarget(null);
   }, [deleteTarget]);
 
-  const handleRefill = useCallback(async (id: string) => {
-    try {
-      await refillMedication(Number(id));
-      Alert.alert('Refilled', 'Supply extended by 30 days.');
-    } catch {
-      Alert.alert('Error', 'Could not refill this medication.');
-    }
+  const handleRefill = useCallback((id: string) => {
+    setInventoryMedId(id);
+    setShowInventory(true);
   }, []);
 
   const handleSuspendMed = useCallback(async (med: PatientMedication) => {
     const pausing = !med.suspended;
+    const nextMeds = medicationsRef.current.map(m =>
+      m.id === med.id ? { ...m, suspended: pausing } : m,
+    );
+    setMedications(nextMeds);
+    medicationsRef.current = nextMeds;
+    await cacheMedications(uid, nextMeds);
+
     try {
       await updateMedication(Number(med.id), {
         name: med.name,
@@ -845,16 +863,16 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         time: med.time,
         suspended: pausing,
       });
-      Alert.alert(pausing ? 'Paused' : 'Resumed', pausing
-        ? 'Reminders paused for this medication.'
-        : 'Reminders are active again.');
-      await forceRescheduleMedicationLocalNotifications(
-        medicationsRef.current.map(m =>
-          m.id === med.id ? { ...m, suspended: pausing } : m,
-        ),
-        uid,
-      );
+      if (med.firestoreId) {
+        await updateDoc(doc(db, 'reminders', med.firestoreId), { suspended: pausing });
+      }
+      await forceRescheduleMedicationLocalNotifications(nextMeds, uid);
     } catch {
+      const reverted = medicationsRef.current.map(m =>
+        m.id === med.id ? { ...m, suspended: !pausing } : m,
+      );
+      setMedications(reverted);
+      medicationsRef.current = reverted;
       Alert.alert('Error', 'Could not update medication.');
     }
   }, [uid]);
@@ -1115,7 +1133,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
             ? `${medications.length} active reminders`
             : activeTab === 'Home'
               ? `Hi ${displayName.split(/\s+/)[0]}`
-              : undefined
+              : ' '
         }
         paddingTop={insets.top + 14}
       />
@@ -1175,6 +1193,13 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         onCancel={() => !deletingMed && setDeleteTarget(null)}
         onConfirm={confirmDeleteMed}
         deleting={deletingMed}
+      />
+      <MedicationInventoryModal
+        visible={showInventory}
+        uid={uid}
+        medications={medications}
+        focusMedId={inventoryMedId}
+        onClose={() => { setShowInventory(false); setInventoryMedId(null); }}
       />
       <LogoutModal
         visible={showLogoutModal}
@@ -1384,41 +1409,46 @@ const ms = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(10, 35, 18, 0.52)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
   sheet: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    maxHeight: '93%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    borderTopWidth: 4,
-    borderTopColor: GREEN,
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '86%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e8f0e8',
     shadowColor: '#0d2815',
     shadowOpacity: 0.22,
     shadowRadius: 22,
-    shadowOffset: { width: 0, height: -8 },
+    shadowOffset: { width: 0, height: 8 },
     elevation: 18,
   },
-  sheetGrab: {
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 6,
+  sheetHeader: {
     backgroundColor: '#f4faf4',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-  },
-  handle: {
-    width: 44, height: 5, borderRadius: 3,
-    backgroundColor: 'rgba(45, 122, 58, 0.28)',
-  },
-  heroHeader: {
-    backgroundColor: '#f4faf4',
-    paddingHorizontal: 22,
-    paddingTop: 16,
-    paddingBottom: 18,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#e8f0e8',
+    position: 'relative',
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e8ece8',
   },
   heroLogoRow: {
     flexDirection: 'row',
@@ -1445,7 +1475,7 @@ const ms = StyleSheet.create({
   heroSub: {
     fontSize: 13, color: '#6a736e', marginTop: 12, lineHeight: 19,
   },
-  scrollContent: { padding: 20, paddingBottom: 8, gap: 20 },
+  scrollContent: { padding: 20, paddingBottom: 16, gap: 20 },
 
   fieldGroup: { gap: 8 },
   labelRow:   { flexDirection: 'row', alignItems: 'center', gap: 6 },

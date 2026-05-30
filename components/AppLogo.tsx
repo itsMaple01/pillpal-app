@@ -7,13 +7,19 @@ interface Props {
   style?: ViewStyle;
 }
 
-/** Official GabayRa logo on a white tile. */
+/** Official GabayRa logo on a white tile. Leave top padding so the figure head is not clipped. */
 export default function AppLogo({ size = 44, style }: Props) {
   const radius = Math.round(size * 0.22);
-  const inner = size * 0.88;
+  const inner = Math.round(size * 0.72);
+  const padTop = Math.round(size * 0.1);
+  const padBottom = Math.round(size * 0.04);
   return (
     <View style={[s.wrap, { width: size, height: size, borderRadius: radius }, style]}>
-      <Image source={logoSource} style={{ width: inner, height: inner }} resizeMode="contain" />
+      <Image
+        source={logoSource}
+        style={{ width: inner, height: inner, marginTop: padTop, marginBottom: padBottom }}
+        resizeMode="contain"
+      />
     </View>
   );
 }

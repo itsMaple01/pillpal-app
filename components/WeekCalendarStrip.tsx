@@ -75,9 +75,10 @@ export default function WeekCalendarStrip({ selectedDate, onSelectDate, markedDa
               onPress={() => onSelectDate(d)}
             >
               <Text style={[s.dayLabel, past && s.pastText]}>{DAY_LABELS[d.getDay()]}</Text>
-              <Text style={[s.dayNum, selected && s.dayNumSelected, past && s.pastText]}>
-                {isToday ? 'Today' : d.getDate()}
+              <Text style={[s.dayNum, selected && s.dayNumSelected, past && s.pastText, isToday && s.dayNumToday]}>
+                {d.getDate()}
               </Text>
+              {isToday && !selected && <Text style={s.todayBadge}>•</Text>}
               {showDot(d) && <View style={s.dot} />}
             </TouchableOpacity>
           );
@@ -142,12 +143,14 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     borderRadius: 12,
-    minHeight: 64,
+    minHeight: 58,
   },
   dayCellSelected: { backgroundColor: theme.greenLight },
   dayLabel: { fontSize: 11, fontWeight: '600', color: theme.textMuted },
   dayNum: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 4 },
   dayNumSelected: { color: theme.green },
+  dayNumToday: { color: theme.greenDark },
+  todayBadge: { fontSize: 16, color: theme.green, marginTop: -2, lineHeight: 10 },
   pastText: { color: theme.textMuted, opacity: 0.65 },
   dot: {
     width: 5,

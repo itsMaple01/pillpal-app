@@ -177,6 +177,7 @@ export default function App() {
       )}
       {screen === 'login' && (
         <LoginScreen
+          key={loginTab}
           initialTab={loginTab}
           onBack={() => setScreen('welcome')}
           onAuthSuccess={handleAuthSuccess}
