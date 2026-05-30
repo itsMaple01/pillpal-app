@@ -27,18 +27,6 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
       </View>
 
       <View style={[styles.bottom, { paddingBottom: insets.bottom + 24 }]}>
-        <View style={styles.featureRow}>
-          <View style={styles.featurePill}>
-            <Text style={styles.featureText}>Reminders</Text>
-          </View>
-          <View style={styles.featurePill}>
-            <Text style={styles.featureText}>Family link</Text>
-          </View>
-          <View style={styles.featurePill}>
-            <Text style={styles.featureText}>Schedule</Text>
-          </View>
-        </View>
-
         <Text style={styles.headline}>
           Stay on track with reminders that keep you and your family connected.
         </Text>
@@ -76,22 +64,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     gap: 14,
   },
-  featureRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 4,
-  },
-  featurePill: {
-    backgroundColor: theme.greenLight,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.border,
-  },
-  featureText: { fontSize: 12, fontWeight: '700', color: theme.green },
   headline: {
     fontSize: 20,
     fontWeight: '700',

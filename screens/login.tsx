@@ -93,7 +93,18 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
         onAuthSuccess(result.user.uid, result.user.email ?? '', false, null);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      const code = error?.code ?? '';
+      let message = error?.message ?? 'Something went wrong.';
+      if (code === 'auth/invalid-credential' || code === 'auth/wrong-password') {
+        message = 'Incorrect email or password. Please try again.';
+      } else if (code === 'auth/user-not-found') {
+        message = 'No account found with this email. Try Sign Up instead.';
+      } else if (code === 'auth/email-already-in-use') {
+        message = 'This email is already registered. Try logging in instead.';
+      } else if (code === 'auth/network-request-failed') {
+        message = 'Network error. Check your connection and try again.';
+      }
+      Alert.alert('Error', message);
     } finally {
       setLoading(false);
     }

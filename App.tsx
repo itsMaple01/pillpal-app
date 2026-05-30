@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -14,6 +14,8 @@ import FamilyDashboard from './screens/family-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
 import OfflineBanner from './components/OfflineBanner';
 import { setupNotifications } from './lib/pushNotifications';
+import AppLogo from './components/AppLogo';
+import { theme } from './lib/theme';
 
 type SignupProfile = { full_name: string; age: number; health_condition: string | null };
 
@@ -26,6 +28,13 @@ type Screen =
   | 'familyDash'
   | 'caretakerDash';
 type LoginTab = 'login' | 'signup';
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>(resolve => setTimeout(() => resolve(null), ms)),
+  ]);
+}
 
 async function routeAuthenticatedUser(
   userId: string,
@@ -46,7 +55,7 @@ async function routeAuthenticatedUser(
     return;
   }
 
-  const dbRole = await resolveUserRole(userId, userEmail);
+  const dbRole = await withTimeout(resolveUserRole(userId, userEmail), 12000);
   if (dbRole === 'patient' || dbRole === 'caretaker') {
     setRole(dbRole);
     await AsyncStorage.setItem(`role_${userId}`, dbRole);
@@ -159,8 +168,10 @@ export default function App() {
     <SafeAreaProvider>
       {screen !== 'loading' && screen !== 'welcome' && screen !== 'login' && <OfflineBanner />}
       {screen === 'loading' && (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#2d7a3a' }}>
-          <ActivityIndicator size="large" color="#fff" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ffffff' }}>
+          <AppLogo size={72} />
+          <ActivityIndicator size="large" color={theme.green} style={{ marginTop: 24 }} />
+          <Text style={{ marginTop: 12, color: theme.textSecondary, fontSize: 14 }}>Loading GabayRa…</Text>
         </View>
       )}
       {screen === 'welcome' && (
