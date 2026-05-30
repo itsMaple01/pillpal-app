@@ -819,13 +819,13 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
 
       <Text style={styles.manageSection}>Settings</Text>
       {onSwitchToFamily && (
-        <MenuRow
-          icon="home-outline"
-          label="Switch to Family view"
-          sub="Simpler home for supporting a few loved ones"
-          onPress={onSwitchToFamily ? () => setShowSwitchFamily(true) : undefined}
-        />
-      )}
+  <MenuRow
+    icon="home-outline"
+    label="Switch to Family view"
+    sub="Simpler home for supporting a few loved ones"
+    onPress={() => setShowSwitchFamily(true)}
+  />
+)}
       <MenuRow
         icon="notifications-outline"
         label="Notification settings"
