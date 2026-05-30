@@ -1,9 +1,8 @@
-import { useState, useRef, type ComponentProps } from 'react';
+import { useState, useEffect, type ComponentProps } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
   KeyboardAvoidingView, Platform, ScrollView,
-  NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import {
   signInWithEmailAndPassword,
@@ -13,6 +12,7 @@ import {
 import { auth } from '@/lib/firebase';
 import AppIcon from '@/components/AppIcon';
 import AppLogo from '@/components/AppLogo';
+import WelcomeBackground from '@/components/WelcomeBackground';
 import { APP_NAME, APP_TAGLINE } from '@/lib/branding';
 import { validateEmail } from '@/utils/algorithms/linear';
 import DateOfBirthField, { ageFromDateOfBirth } from '@/components/DateOfBirthField';
@@ -32,7 +32,7 @@ interface Props {
 function FieldLabel({ icon, text }: { icon: ComponentProps<typeof AppIcon>['name']; text: string }) {
   return (
     <View style={labelStyles.row}>
-      <AppIcon name={icon} size={16} color="#2d7a3a" />
+      <AppIcon name={icon} size={16} color={theme.green} />
       <Text style={labelStyles.text}>{text}</Text>
     </View>
   );
@@ -47,13 +47,15 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
   const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
   const [fullName, setFullName] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState<string | null>(null);
-  const pagerRef = useRef<ScrollView>(null);
-  const [formWidth, setFormWidth] = useState(0);
   const [healthCondition, setHealthCondition] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -97,19 +99,6 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
     }
   };
 
-  const goTab = (t: 'login' | 'signup') => {
-    setTab(t);
-    if (formWidth > 0) {
-      pagerRef.current?.scrollTo({ x: t === 'login' ? 0 : formWidth, animated: true });
-    }
-  };
-
-  const onPagerEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (formWidth <= 0) return;
-    const i = Math.round(e.nativeEvent.contentOffset.x / formWidth);
-    setTab(i === 0 ? 'login' : 'signup');
-  };
-
   const handleForgotPassword = async () => {
     const trimmed = email.trim();
     if (!trimmed || !validateEmail(trimmed)) {
@@ -130,20 +119,40 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
     }
   };
 
+  const passwordField = (
+    <View style={styles.fieldGroup}>
+      <FieldLabel icon="lock-closed-outline" text="Password" />
+      <View style={styles.passwordWrap}>
+        <TextInput
+          style={[styles.input, styles.passwordInput]}
+          placeholder="At least 6 characters"
+          placeholderTextColor="#aaa"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity
+          style={styles.eyeBtn}
+          onPress={() => setShowPassword(!showPassword)}
+          accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+        >
+          <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.outer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <WelcomeBackground />
       <ScrollView
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-
-        <View style={styles.circleTopLeft} />
-        <View style={styles.circleBottomRight} />
-
         {onBack && (
           <TouchableOpacity style={styles.backBtn} onPress={onBack}>
             <Text style={styles.backText}>← Back</Text>
@@ -157,36 +166,23 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
         </View>
 
         <View style={styles.card}>
-
           <View style={styles.tabRow}>
             <TouchableOpacity
               style={[styles.tab, tab === 'login' && styles.tabActive]}
-              onPress={() => goTab('login')}
+              onPress={() => setTab('login')}
             >
               <Text style={[styles.tabText, tab === 'login' && styles.tabTextActive]}>Login</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.tab, tab === 'signup' && styles.tabActive]}
-              onPress={() => goTab('signup')}
+              onPress={() => setTab('signup')}
             >
               <Text style={[styles.tabText, tab === 'signup' && styles.tabTextActive]}>Sign Up</Text>
             </TouchableOpacity>
           </View>
 
-          <View
-            style={styles.formPagerWrap}
-            onLayout={e => setFormWidth(e.nativeEvent.layout.width)}
-          >
-          <ScrollView
-            ref={pagerRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={onPagerEnd}
-            style={{ width: formWidth || '100%' }}
-            scrollEnabled={formWidth > 0}
-          >
-            <View style={{ width: formWidth || 1, alignSelf: 'flex-start' }}>
+          {tab === 'login' ? (
+            <View>
               <View style={styles.fieldGroupTight}>
                 <FieldLabel icon="mail-outline" text="Email" />
                 <TextInput
@@ -199,37 +195,18 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
                   keyboardType="email-address"
                 />
               </View>
-              <View style={styles.fieldGroup}>
-                <FieldLabel icon="lock-closed-outline" text="Password" />
-                <View style={styles.passwordWrap}>
-                  <TextInput
-                    style={[styles.input, styles.passwordInput]}
-                    placeholder="At least 6 characters"
-                    placeholderTextColor="#aaa"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeBtn}
-                    onPress={() => setShowPassword(!showPassword)}
-                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
-                  </TouchableOpacity>
-                </View>
-              </View>
+              {passwordField}
               <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword}>
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
-
-            <View style={{ width: formWidth || 1 }}>
+          ) : (
+            <View>
               <View style={styles.fieldGroupTight}>
                 <FieldLabel icon="person-outline" text="Full name" />
                 <TextInput
                   style={styles.input}
-                  placeholder="Maria Santos"
+                  placeholder="Last name, first name"
                   placeholderTextColor="#aaa"
                   value={fullName}
                   onChangeText={setFullName}
@@ -259,29 +236,9 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
                   keyboardType="email-address"
                 />
               </View>
-              <View style={styles.fieldGroup}>
-                <FieldLabel icon="lock-closed-outline" text="Password" />
-                <View style={styles.passwordWrap}>
-                  <TextInput
-                    style={[styles.input, styles.passwordInput]}
-                    placeholder="At least 6 characters"
-                    placeholderTextColor="#aaa"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeBtn}
-                    onPress={() => setShowPassword(!showPassword)}
-                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    <AppIcon name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888" />
-                  </TouchableOpacity>
-                </View>
-              </View>
+              {passwordField}
             </View>
-          </ScrollView>
-          </View>
+          )}
 
           <TouchableOpacity style={styles.submitBtn} onPress={handleAuth} disabled={loading}>
             {loading ? (
@@ -293,7 +250,7 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => goTab(tab === 'login' ? 'signup' : 'login')}>
+          <TouchableOpacity onPress={() => setTab(tab === 'login' ? 'signup' : 'login')}>
             <Text style={styles.toggleText}>
               {tab === 'login' ? "Don't have an account? " : 'Already have an account? '}
               <Text style={styles.toggleLink}>
@@ -301,70 +258,67 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
               </Text>
             </Text>
           </TouchableOpacity>
-
         </View>
-
-        <Text style={styles.footer}>
-          Helping you stay healthy, one reminder at a time
-        </Text>
-
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-const GREEN = '#2d7a3a';
-
 const styles = StyleSheet.create({
-  outer: { flex: 1, backgroundColor: GREEN },
+  outer: { flex: 1, backgroundColor: '#ffffff' },
   scroll: {
-    flexGrow: 1, alignItems: 'center',
-    justifyContent: 'flex-start', padding: 24, paddingTop: 40,
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: 24,
+    paddingTop: 48,
+    paddingBottom: 32,
   },
-  circleTopLeft: {
-    position: 'absolute', top: -40, left: -40,
-    width: 160, height: 160, borderRadius: 80,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  circleBottomRight: {
-    position: 'absolute', bottom: 60, right: -60,
-    width: 200, height: 200, borderRadius: 100,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  header: { alignItems: 'center', marginBottom: 28 },
-  logoBox: {
-    width: 72, height: 72, borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
-  },
-  appName: { fontSize: 32, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
-  tagline: { fontSize: 14, color: 'rgba(255,255,255,0.85)' },
+  header: { alignItems: 'center', marginBottom: 24 },
+  appName: { fontSize: 30, fontWeight: '800', color: theme.greenDark, marginBottom: 4 },
+  tagline: { fontSize: 14, color: theme.textSecondary },
   card: {
-    width: '100%', maxWidth: 420, backgroundColor: '#fff',
-    borderRadius: 24, padding: 24,
-    shadowColor: '#000', shadowOpacity: 0.12,
-    shadowRadius: 16, elevation: 8,
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: theme.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 6,
   },
   tabRow: {
-    flexDirection: 'row', backgroundColor: '#f0f0f0',
-    borderRadius: 12, padding: 4, marginBottom: 24,
+    flexDirection: 'row',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
   },
   tab: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
   tabActive: {
     backgroundColor: '#fff',
-    shadowColor: '#000', shadowOpacity: 0.08,
-    shadowRadius: 4, elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   tabText: { fontSize: 15, color: '#888', fontWeight: '500' },
-  tabTextActive: { color: GREEN, fontWeight: '700' },
-  fieldGroup: { marginBottom: 24 },
+  tabTextActive: { color: theme.green, fontWeight: '700' },
+  fieldGroup: { marginBottom: 16 },
   fieldGroupTight: { marginBottom: 12 },
   input: {
-    backgroundColor: '#f7f7f7', borderRadius: 12,
-    padding: 14, fontSize: 15, color: '#222',
-    borderWidth: 1, borderColor: '#eee', width: '100%',
+    backgroundColor: '#f7f7f7',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#222',
+    borderWidth: 1,
+    borderColor: '#eee',
+    width: '100%',
   },
-  formPagerWrap: { width: '100%', overflow: 'hidden' },
   passwordWrap: { position: 'relative', width: '100%' },
   passwordInput: { paddingRight: 48 },
   eyeBtn: {
@@ -375,22 +329,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  forgotBtn: { alignSelf: 'flex-end', marginBottom: 8, marginTop: -4 },
-  forgotText: { color: GREEN, fontSize: 13, fontWeight: '500' },
+  forgotBtn: { alignSelf: 'flex-end', marginTop: -4 },
+  forgotText: { color: theme.green, fontSize: 13, fontWeight: '600' },
   submitBtn: {
-    backgroundColor: GREEN, borderRadius: 14,
-    padding: 16, alignItems: 'center',
-    marginBottom: 16, marginTop: 8,
-    shadowColor: GREEN, shadowOpacity: 0.4,
-    shadowRadius: 8, elevation: 4,
+    backgroundColor: theme.green,
+    borderRadius: 14,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 14,
+    marginTop: 16,
   },
   submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   toggleText: { textAlign: 'center', fontSize: 14, color: '#666' },
-  toggleLink: { color: GREEN, fontWeight: '700' },
-  footer: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 13, marginTop: 28, textAlign: 'center',
-  },
+  toggleLink: { color: theme.green, fontWeight: '700' },
   backBtn: {
     alignSelf: 'flex-start',
     marginBottom: 8,
@@ -398,7 +349,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   },
-  backText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  backText: { color: theme.text, fontSize: 15, fontWeight: '600' },
 });

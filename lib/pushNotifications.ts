@@ -168,9 +168,9 @@ export async function rescheduleMedicationLocalNotifications(
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'GabayRa',
-          body: `${med.name} · due in ${leadMinutes} min`,
+          body: `${med.name} · ${parsed.label}`,
           sound: true,
-          data: { medicationId: med.id, type: 'med_reminder' },
+          data: { medicationId: med.id, type: 'med_reminder', doseTime: med.time },
         },
         trigger: {
           hour: when.hour,

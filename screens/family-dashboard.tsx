@@ -178,7 +178,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           <View style={{ flex: 1 }}>
             <Text style={styles.personName}>{person.full_name ?? person.email}</Text>
             <Text style={styles.personSub}>
-              Age {person.age ?? '—'} · {pending} pending · {meds.length} meds today
+              Age {person.age ?? '—'} · {pending} pending · {meds.length} meds
             </Text>
           </View>
         </View>
@@ -288,10 +288,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         <View style={styles.empty}>
           <AppIcon name="link-outline" size={36} color={GREEN} />
           <Text style={styles.emptyTitle}>No family linked yet</Text>
-          <Text style={styles.emptySub}>Link a patient with their code or accept their request.</Text>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setShowLink(true)}>
-            <Text style={styles.primaryBtnText}>Link family member</Text>
-          </TouchableOpacity>
+          <Text style={styles.emptySub}>Go to Manage → Link to connect with a patient.</Text>
         </View>
       ) : (
         people.map(p => renderPersonCard(p))
@@ -307,14 +304,9 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const FamilyScreen = () => (
     <ScrollView contentContainerStyle={styles.scrollPad}>
-      <TouchableOpacity style={styles.linkBanner} onPress={() => setShowLink(true)}>
-        <AppIcon name="link-outline" size={22} color="#fff" />
-        <Text style={styles.linkBannerText}>Link family member / patient</Text>
-        <AppIcon name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
-      </TouchableOpacity>
       {people.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptySub}>Open Link to redeem a code or review patient requests.</Text>
+          <Text style={styles.emptySub}>No family linked yet. Use Manage → Link to connect.</Text>
         </View>
       ) : (
         people.map(p => renderPersonCard(p))

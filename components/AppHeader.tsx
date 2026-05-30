@@ -53,7 +53,7 @@ const s = StyleSheet.create({
     letterSpacing: 1.2,
   },
   title: { fontSize: TEXT.xl, fontWeight: '800', color: '#1a1a1a', marginTop: 2 },
-  sub:   { fontSize: TEXT.sm, color: '#888', marginTop: 2 },
+  sub:   { fontSize: TEXT.sm, color: '#888', marginTop: 2, minHeight: 18 },
   actionBtn: {
     backgroundColor: GREEN,
     paddingHorizontal: 14,
