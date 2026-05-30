@@ -16,7 +16,7 @@ import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { cachePatients, getCachedPatients } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
 import { useNetworkStatus } from '@/lib/offline/network';
-import { medicationTimeBucket } from '@/utils/medicationTimeBucket';
+import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
 import { patientMatchesSearch } from '@/utils/patientSearch';
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
@@ -695,7 +695,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               sorted.map(m => (
                 <View key={m.id} style={styles.scheduleListRow}>
                   <View style={styles.scheduleTimePill}>
-                    <Text style={styles.scheduleTimePillText}>{m.time || '—'}</Text>
+                    <Text style={styles.scheduleTimePillText} numberOfLines={1}>
+                      {parseMedicationTime(m.time)?.label ?? m.time ?? '—'}
+                    </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.scheduleMedLineBold}>{m.name}</Text>
@@ -1406,14 +1408,17 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eef2ee',
   },
   scheduleTimePill: {
-    backgroundColor: GREEN_LIGHT,
+    borderWidth: 1.5,
+    borderColor: GREEN,
+    backgroundColor: '#fff',
     borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minWidth: 72,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    width: 78,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  scheduleTimePillText: { fontSize: 12, fontWeight: '800', color: GREEN },
+  scheduleTimePillText: { fontSize: 11, fontWeight: '800', color: GREEN, textAlign: 'center' },
   scheduleMedLineBold: { fontSize: 14, fontWeight: '800', color: '#222' },
   scheduleMedLineSub: { fontSize: 12, color: '#666', marginTop: 2 },
   screenTitle:           { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
