@@ -1,3 +1,4 @@
+process.env.FIREBASE_PRIVATE_KEY = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -18,20 +19,19 @@ app.get('/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/users', require('./routes/users'));
-app.use('/api/medications', require('./routes/medications'));
-app.use('/api/doses', require('./routes/doses'));
-app.use('/api/patients', require('./routes/patients'));
-app.use('/api/linking', require('./routes/linking'));
-app.use('/api/alerts', require('./routes/alerts'));
-app.use('/api/reminders', require('./routes/reminders'));
+app.use('/api/users',        require('./routes/users'));
+app.use('/api/medications',  require('./routes/medications'));
+app.use('/api/doses',        require('./routes/doses'));
+app.use('/api/patients',     require('./routes/patients'));
+app.use('/api/linking',      require('./routes/linking'));
+app.use('/api/alerts',       require('./routes/alerts'));
+app.use('/api/reminders',    require('./routes/reminders'));
 app.use('/api/intelligence', require('./routes/intelligence'));
+app.use('/api/ai',           require('./routes/aiPredict'));  // ← moved here
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 const checkMissedDoses = require('./missedDoseChecker');
-
-// Run every 5 minutes
 setInterval(checkMissedDoses, 5 * 60 * 1000);
-checkMissedDoses(); // run once on startup
+checkMissedDoses();

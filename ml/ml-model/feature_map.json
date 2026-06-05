@@ -1,0 +1,32 @@
+{
+  "features": [
+    "age",
+    "health_condition",
+    "medication_count",
+    "notify_enabled",
+    "suspended",
+    "hour_of_day",
+    "day_of_week",
+    "streak_7d",
+    "missed_last",
+    "alert_sent",
+    "avg_response_delay_minutes",
+    "preferred_lead_minutes",
+    "cluster_label"
+  ],
+  "feature_map": {
+    "age": "f0",
+    "health_condition": "f1",
+    "medication_count": "f2",
+    "notify_enabled": "f3",
+    "suspended": "f4",
+    "hour_of_day": "f5",
+    "day_of_week": "f6",
+    "streak_7d": "f7",
+    "missed_last": "f8",
+    "alert_sent": "f9",
+    "avg_response_delay_minutes": "f10",
+    "preferred_lead_minutes": "f11",
+    "cluster_label": "f12"
+  }
+}

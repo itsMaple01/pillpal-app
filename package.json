@@ -22,6 +22,7 @@
     "expo-updates": "~29.0.17",
     "firebase": "^12.13.0",
     "firebase-admin": "^13.9.0",
+    "onnxruntime-node": "^1.26.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -30,6 +31,7 @@
     "react-native-web": "^0.21.0"
   },
   "devDependencies": {
+    "@types/node": "^25.9.1",
     "@types/react": "~19.1.0",
     "typescript": "~5.9.2"
   },
