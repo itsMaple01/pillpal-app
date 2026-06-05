@@ -9,4 +9,5 @@ export interface PatientMedication {
   taken: boolean;
   suspended?: boolean;
   notify_enabled?: boolean;
+  missed?: boolean;
 }

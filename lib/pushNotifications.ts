@@ -165,18 +165,30 @@ export async function rescheduleMedicationLocalNotifications(
       const parsed = parseMedicationTime(med.time);
       if (!parsed) continue;
       const when = subtractMinutes(parsed.hour, parsed.minute, leadMinutes);
+      
+      // Calculate the trigger date/time
+      const now = new Date();
+      const triggerDate = new Date();
+      triggerDate.setHours(when.hour, when.minute, 0, 0);
+      
+      // If the trigger time has already passed today, schedule for tomorrow
+      if (triggerDate <= now) {
+        triggerDate.setDate(triggerDate.getDate() + 1);
+      }
+      
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'GabayRa',
           body: `${med.name} · ${parsed.label}`,
-          sound: true,
+          sound: 'default',
+          priority: 'high',
+          vibrate: [0, 250, 250, 250],
           data: { medicationId: med.id, type: 'med_reminder', doseTime: med.time },
         },
         trigger: {
-          hour: when.hour,
-          minute: when.minute,
-          repeats: true,
+          date: triggerDate,
           channelId: 'medication-reminders',
+          repeats: true,
         } as any,
       });
     }

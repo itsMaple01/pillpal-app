@@ -32,9 +32,11 @@ import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
 import AppLogo from '@/components/AppLogo';
 import { SkeletonPatientRow } from '@/components/Skeleton';
+import StatisticsScreen from '@/components/StatisticsScreen';
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
 } from '@/lib/tutorial';
+import { exportDataToCSV } from '@/lib/dataExport';
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -46,9 +48,9 @@ interface Props {
   onSwitchToFamily?: () => void;
 }
 
-const GREEN       = '#2d7a3a';
-const GREEN_DARK  = '#1e5c28';
-const GREEN_LIGHT = '#e8f5e9';
+const GREEN       = '#3d8f5a';
+const GREEN_DARK  = '#2f6f47';
+const GREEN_LIGHT = '#eef6f0';
 
 type CaretakerTab = 'Home' | 'Patients' | 'Schedule' | 'Medications' | 'Manage';
 
@@ -118,6 +120,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [showLogoutModal,   setShowLogoutModal]    = useState(false);
   const [showSwitchFamily,  setShowSwitchFamily]   = useState(false);
   const [scheduleDate,      setScheduleDate]       = useState(new Date());
+  const [showStatistics,    setShowStatistics]     = useState(false);
 
   const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
@@ -195,12 +198,65 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         : `Reminder saved. ${pushErr || 'Patient must open the installed GabayRa app once to enable push notifications.'}`;
       if (Platform.OS === 'web') window.alert(msg);
       else Alert.alert(pushSent ? 'Reminder sent' : 'Reminder recorded', msg);
-    } catch (err: any) {
-      const msg = err?.response?.data?.error ?? err?.message ?? 'Could not send reminder.';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Could not send reminder', String(msg));
+    } catch {
+      if (Platform.OS === 'web') window.alert('Could not send reminder.');
+      else Alert.alert('Error', 'Could not send reminder.');
     }
   }, [uid]);
+
+  const handleExportData = useCallback(async () => {
+    try {
+      const exportDate = new Date().toISOString().slice(0, 10);
+      const allMeds = Object.values(scheduleByPatient).flat();
+      const stats = {
+        total: allMeds.length,
+        taken: allMeds.filter(m => m.taken && !m.suspended).length,
+        missed: allMeds.filter(m => m.missed && !m.suspended).length,
+        late: 0,
+        pending: allMeds.filter(m => !m.taken && !m.missed && !m.suspended).length,
+        complianceRate: allMeds.length > 0 
+          ? Math.round((allMeds.filter(m => m.taken && !m.suspended).length / allMeds.length) * 100) 
+          : 0,
+      };
+
+      const exportData = {
+        exportDate,
+        user: {
+          name: caregiverName,
+          email: '',
+          role: 'caretaker',
+        },
+        medications: allMeds.map(m => ({
+          date: exportDate,
+          medicationName: m.name,
+          dosage: m.dosage,
+          time: m.time,
+          status: m.taken ? 'taken' as const : m.missed ? 'missed' as const : 'pending' as const,
+        })),
+        connectedAccounts: patients.map(p => ({
+          id: p.firebase_uid,
+          name: p.full_name || p.email || 'Unknown',
+          type: 'patient' as const,
+          email: p.email || '',
+        })),
+        statistics: stats,
+      };
+
+      await exportDataToCSV(exportData);
+      if (Platform.OS === 'web') {
+        window.alert('Data exported successfully!');
+      } else {
+        Alert.alert('Success', 'Data exported successfully!');
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      if (Platform.OS === 'web') {
+        window.alert('Could not export data. Please try again.');
+      } else {
+        Alert.alert('Error', 'Could not export data. Please try again.');
+      }
+    }
+  }, [scheduleByPatient, caregiverName, patients]);
 
   useEffect(() => { fetchPatients(false); }, [fetchPatients]);
 
@@ -827,6 +883,18 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   />
 )}
       <MenuRow
+        icon="bar-chart-outline"
+        label="Statistics"
+        sub="View medication statistics"
+        onPress={() => setShowStatistics(true)}
+      />
+      <MenuRow
+        icon="download-outline"
+        label="Export data"
+        sub="Download your medication data"
+        onPress={handleExportData}
+      />
+      <MenuRow
         icon="notifications-outline"
         label="Notification settings"
         sub="Alert thresholds and reminder defaults"
@@ -1110,6 +1178,33 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         onLogout();
       }}
     />
+    <Modal visible={showStatistics} animationType="slide" onRequestClose={() => setShowStatistics(false)}>
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStatistics(false)} />
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Statistics</Text>
+            <TouchableOpacity onPress={() => setShowStatistics(false)}>
+              <AppIcon name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <StatisticsScreen
+            stats={{
+              total: Object.values(scheduleByPatient).flat().length,
+              taken: Object.values(scheduleByPatient).flat().filter(m => m.taken && !m.suspended).length,
+              missed: Object.values(scheduleByPatient).flat().filter(m => m.missed && !m.suspended).length,
+              pending: Object.values(scheduleByPatient).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
+            }}
+            connectedAccounts={patients.map(p => ({
+              id: p.firebase_uid,
+              name: p.full_name || p.email || 'Unknown',
+              type: 'patient' as const,
+              email: p.email || '',
+            }))}
+          />
+        </View>
+      </View>
+    </Modal>
     </>
   );
 }
@@ -1493,6 +1588,32 @@ const styles = StyleSheet.create({
   editModalCancelText: { fontWeight: '700', color: '#666' },
   editModalSave:     { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   editModalSaveText: { fontWeight: '800', color: '#fff' },
+
+  // Statistics modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#222',
+  },
 
   // Tab bar
   tabBar:   { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingVertical: 10 },

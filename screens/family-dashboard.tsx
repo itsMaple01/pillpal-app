@@ -1,6 +1,6 @@
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  StatusBar, Dimensions, Alert, Platform, ActivityIndicator,
+  StatusBar, Dimensions, Alert, Platform, ActivityIndicator, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useState } from 'react';
@@ -22,12 +22,14 @@ import NavTutorialOverlay from '@/components/NavTutorialOverlay';
 import SwitchModeModal from '@/components/SwitchModeModal';
 import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
+import StatisticsScreen from '@/components/StatisticsScreen';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
 import { theme } from '@/lib/theme';
 import {
   isTutorialDone, setTutorialDone, FAMILY_TUTORIAL,
 } from '@/lib/tutorial';
+import { exportDataToCSV } from '@/lib/dataExport';
 import type { PatientMedication } from '@/types/medication';
 import type { ComponentProps } from 'react';
 
@@ -75,6 +77,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSwitchMode, setShowSwitchMode] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(new Date());
+  const [showStatistics, setShowStatistics] = useState(false);
 
   const loadPeople = useCallback(async () => {
     try {
@@ -153,6 +156,60 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       alert('Error', 'Could not send reminder.');
     }
   };
+
+  const handleExportData = useCallback(async () => {
+    try {
+      const exportDate = new Date().toISOString().slice(0, 10);
+      const allMeds = Object.values(medsByPerson).flat();
+      const stats = {
+        total: allMeds.length,
+        taken: allMeds.filter(m => m.taken && !m.suspended).length,
+        missed: allMeds.filter(m => m.missed && !m.suspended).length,
+        late: 0,
+        pending: allMeds.filter(m => !m.taken && !m.missed && !m.suspended).length,
+        complianceRate: allMeds.length > 0 
+          ? Math.round((allMeds.filter(m => m.taken && !m.suspended).length / allMeds.length) * 100) 
+          : 0,
+      };
+
+      const exportData = {
+        exportDate,
+        user: {
+          name: displayName,
+          email: '',
+          role: 'family',
+        },
+        medications: allMeds.map(m => ({
+          date: exportDate,
+          medicationName: m.name,
+          dosage: m.dosage,
+          time: m.time,
+          status: m.taken ? 'taken' as const : m.missed ? 'missed' as const : 'pending' as const,
+        })),
+        connectedAccounts: people.map(p => ({
+          id: p.firebase_uid,
+          name: p.full_name || p.email || 'Unknown',
+          type: 'patient' as const,
+          email: p.email || '',
+        })),
+        statistics: stats,
+      };
+
+      await exportDataToCSV(exportData);
+      if (Platform.OS === 'web') {
+        window.alert('Data exported successfully!');
+      } else {
+        Alert.alert('Success', 'Data exported successfully!');
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      if (Platform.OS === 'web') {
+        window.alert('Could not export data. Please try again.');
+      } else {
+        Alert.alert('Error', 'Could not export data. Please try again.');
+      }
+    }
+  }, [medsByPerson, displayName, people]);
 
   const totalMedsToday = people.reduce((sum, p) => {
     const meds = medsByPerson[p.firebase_uid] || [];
@@ -330,6 +387,18 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         onPress={() => setShowLink(true)}
       />
       <MenuRow
+        icon="bar-chart-outline"
+        label="Statistics"
+        sub="View medication statistics"
+        onPress={() => setShowStatistics(true)}
+      />
+      <MenuRow
+        icon="download-outline"
+        label="Export data"
+        sub="Download your medication data"
+        onPress={handleExportData}
+      />
+      <MenuRow
         icon="book-outline"
         label="Show tutorial"
         sub="Learn what each tab does"
@@ -417,6 +486,33 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           onLogout();
         }}
       />
+      <Modal visible={showStatistics} animationType="slide" onRequestClose={() => setShowStatistics(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStatistics(false)} />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Statistics</Text>
+              <TouchableOpacity onPress={() => setShowStatistics(false)}>
+                <AppIcon name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <StatisticsScreen
+              stats={{
+                total: Object.values(medsByPerson).flat().length,
+                taken: Object.values(medsByPerson).flat().filter(m => m.taken && !m.suspended).length,
+                missed: Object.values(medsByPerson).flat().filter(m => m.missed && !m.suspended).length,
+                pending: Object.values(medsByPerson).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
+              }}
+              connectedAccounts={people.map(p => ({
+                id: p.firebase_uid,
+                name: p.full_name || p.email || 'Unknown',
+                type: 'patient' as const,
+                email: p.email || '',
+              }))}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -559,4 +655,30 @@ const styles = StyleSheet.create({
   },
   logoutText: { color: '#c62828', fontWeight: '800', fontSize: TEXT.md },
   version: { textAlign: 'center', color: '#ccc', fontSize: TEXT.xs, marginTop: 20 },
+
+  // Statistics modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: TEXT.lg,
+    fontWeight: '800',
+    color: '#222',
+  },
 });

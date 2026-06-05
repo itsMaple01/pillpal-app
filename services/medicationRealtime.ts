@@ -3,20 +3,47 @@ import { getMedications } from '@/api/index';
 import { db } from '@/lib/firebase';
 import { cacheMedications, getCachedMedications } from '@/lib/offline/store';
 import type { PatientMedication } from '@/types/medication';
+import { parseMedicationTime } from '@/utils/medicationTimeBucket';
+
+/** Check if a medication time has passed (considered missed if 30+ minutes past). */
+function isMedicationMissed(timeStr: string, taken: boolean): boolean {
+  if (taken) return false;
+  const parsed = parseMedicationTime(timeStr);
+  if (!parsed) return false;
+  
+  const now = new Date();
+  const medTime = new Date();
+  medTime.setHours(parsed.hour, parsed.minute, 0, 0);
+  
+  // If medication time is tomorrow, not missed yet
+  if (medTime > now) {
+    medTime.setDate(medTime.getDate() - 1);
+  }
+  
+  // Check if 30+ minutes have passed since medication time
+  const diffMs = now.getTime() - medTime.getTime();
+  const diffMins = diffMs / (1000 * 60);
+  return diffMins >= 30;
+}
 
 /** Map DB rows to client medication objects (shared by realtime hook and schedule loader). */
 export function mapMedicationRows(rows: unknown[]): PatientMedication[] {
-  return rows.map((row: any) => ({
-    id: String(row.id),
-    name: row.name ?? '',
-    dosage: row.dosage ?? 'As prescribed',
-    frequency: row.frequency ?? '',
-    time: row.time ?? row.program ?? '',
-    taken: row.taken ?? false,
-    firestoreId: row.firestore_id ?? undefined,
-    suspended: row.suspended ?? false,
-    notify_enabled: row.notify_enabled !== false,
-  }));
+  return rows.map((row: any) => {
+    const time = row.time ?? row.program ?? '';
+    const taken = row.taken ?? false;
+    return {
+      id: String(row.id),
+      name: row.name ?? '',
+      dosage: row.dosage ?? 'As prescribed',
+      frequency: row.frequency ?? '',
+      time,
+      taken,
+      firestoreId: row.firestore_id ?? undefined,
+      suspended: row.suspended ?? false,
+      notify_enabled: row.notify_enabled !== false,
+      missed: isMedicationMissed(time, taken),
+    };
+  });
 }
 
 let firestoreRealtimeEnabled = true;
