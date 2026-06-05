@@ -1,14 +1,13 @@
 import { View, StyleSheet } from 'react-native';
 import { theme } from '@/lib/theme';
 
-/** Shared decorative background for welcome + auth screens. */
+/** Soft background blobs for welcome + auth screens (no ring around logo). */
 export default function WelcomeBackground() {
   return (
     <>
       <View style={s.blobTop} />
       <View style={s.blobMid} />
       <View style={s.blobBottom} />
-      <View style={s.ring} />
     </>
   );
 }
@@ -42,15 +41,5 @@ const s = StyleSheet.create({
     borderRadius: 70,
     backgroundColor: theme.greenLight,
     opacity: 0.6,
-  },
-  ring: {
-    position: 'absolute',
-    top: '22%',
-    alignSelf: 'center',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    borderWidth: 1,
-    borderColor: 'rgba(45, 122, 58, 0.12)',
   },
 });

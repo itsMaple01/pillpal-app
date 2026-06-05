@@ -45,6 +45,7 @@ import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
 import NotificationSettingsModal from '@/components/NotificationSettingsModal';
 import MedicationInventoryModal from '@/components/MedicationInventoryModal';
+import PrivacySecurityModal from '@/components/PrivacySecurityModal';
 import StatTile from '@/components/StatTile';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';

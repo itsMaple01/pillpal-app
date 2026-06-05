@@ -4,7 +4,6 @@ const { predictMissRisk } = require('./ml/predictiveAnalytics');
 
 const DEFAULT_LEAD = 5;
 
-/** Placeholder “AI” — rule-based profile until a model is connected. */
 async function recomputeProfile(firebase_uid) {
   const events = await pool.query(
     `SELECT event_type, scheduled_at, responded_at
@@ -82,7 +81,7 @@ async function logEvent(body) {
   return recomputeProfile(firebase_uid);
 }
 
-async function getReminderPlan(firebase_uid) {
+async function getReminderPlan(firebase_uid, patientContext = {}) {
   const profile = await pool.query(
     'SELECT * FROM intelligence_profiles WHERE firebase_uid = $1',
     [firebase_uid],
@@ -97,7 +96,7 @@ async function getReminderPlan(firebase_uid) {
 
   if (profile.rows.length === 0) {
     const rl = suggestReminderLead(events, {});
-    const risk = predictMissRisk(events, {});
+    const risk = await predictMissRisk(events, {}, patientContext);
     return {
       preferred_lead_minutes: rl.preferred_lead_minutes,
       notify_at_exact_time: false,
@@ -105,13 +104,15 @@ async function getReminderPlan(firebase_uid) {
       avg_response_delay_minutes: 0,
       miss_risk: risk.miss_risk,
       miss_risk_label: risk.label,
+      action: risk.action,
+      model_version: risk.model_version,
       engine: 'rules-v1+ml-stub',
     };
   }
 
   const row = profile.rows[0];
   const rl = suggestReminderLead(events, row);
-  const risk = predictMissRisk(events, row);
+  const risk = await predictMissRisk(events, row, patientContext);
   return {
     preferred_lead_minutes: rl.preferred_lead_minutes ?? row.preferred_lead_minutes ?? DEFAULT_LEAD,
     notify_at_exact_time: false,
@@ -119,6 +120,8 @@ async function getReminderPlan(firebase_uid) {
     avg_response_delay_minutes: row.avg_response_delay_minutes ?? 0,
     miss_risk: risk.miss_risk,
     miss_risk_label: risk.label,
+    action: risk.action,
+    model_version: risk.model_version,
     engine: `rules-v1+${rl.policy_version}`,
   };
 }

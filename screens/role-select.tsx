@@ -40,16 +40,23 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
         age: signupProfile?.age,
         health_condition: signupProfile?.health_condition ?? undefined,
       });
-      onRoleSelected(role);
     } catch (err: any) {
-      const msg = err?.response?.data?.error ?? err?.message;
-      const hint = msg?.includes('Network') || err?.code === 'ECONNABORTED'
-        ? 'Cannot reach the server. Check your internet connection.'
-        : 'Could not save your role. Please try again.';
-      Alert.alert('Error', typeof msg === 'string' && msg.length < 120 ? msg : hint);
+      const msg = String(err?.response?.data?.error ?? err?.message ?? '');
+      const isNetwork = msg.includes('Network') || err?.code === 'ECONNABORTED' || !err?.response;
+      if (isNetwork) {
+        Alert.alert(
+          'Saved on device',
+          'Could not reach the server right now. Your role is saved on this device — we will sync when you are back online.',
+        );
+      } else {
+        Alert.alert('Error', msg.length < 120 ? msg : 'Could not save your role. Please try again.');
+        setLoading(null);
+        return;
+      }
     } finally {
       setLoading(null);
     }
+    onRoleSelected(role);
   };
 
   const handleBack = async () => {
