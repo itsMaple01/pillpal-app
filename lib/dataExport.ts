@@ -74,7 +74,7 @@ export async function exportDataToCSV(data: ExportData): Promise<void> {
 function generateCSV(data: ExportData): string {
   let csv = 'GabayRa Medication Data Export\n';
   csv += `Export Date: ${data.exportDate}\n`;
-  csv += `User: ${data.user.name} (${data.user.email})\n`;
+  csv += `User: ${data.user.name} (${data.user.email || 'N/A'})\n`;
   csv += `Role: ${data.user.role}\n\n`;
 
   csv += 'Statistics\n';
@@ -83,15 +83,23 @@ function generateCSV(data: ExportData): string {
 
   csv += 'Connected Accounts\n';
   csv += 'Name,Type,Email\n';
-  data.connectedAccounts.forEach(account => {
-    csv += `${account.name},${account.type},${account.email || ''}\n`;
-  });
+  if (data.connectedAccounts.length === 0) {
+    csv += 'No connected accounts\n';
+  } else {
+    data.connectedAccounts.forEach(account => {
+      csv += `${account.name},${account.type},${account.email || 'N/A'}\n`;
+    });
+  }
 
   csv += '\nMedication Records\n';
   csv += 'Date,Medication Name,Dosage,Time,Status\n';
-  data.medications.forEach(record => {
-    csv += `${record.date},${record.medicationName},${record.dosage},${record.time},${record.status}\n`;
-  });
+  if (data.medications.length === 0) {
+    csv += 'No medication records\n';
+  } else {
+    data.medications.forEach(record => {
+      csv += `${record.date},${record.medicationName},${record.dosage},${record.time},${record.status}\n`;
+    });
+  }
 
   return csv;
 }

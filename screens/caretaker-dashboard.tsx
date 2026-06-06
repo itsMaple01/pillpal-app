@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
@@ -33,6 +34,8 @@ import LogoutModal from '@/components/LogoutModal';
 import AppLogo from '@/components/AppLogo';
 import { SkeletonPatientRow } from '@/components/Skeleton';
 import StatisticsScreen from '@/components/StatisticsScreen';
+import MedicationInventoryModal from '@/components/MedicationInventoryModal';
+import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
 } from '@/lib/tutorial';
@@ -121,6 +124,10 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [showSwitchFamily,  setShowSwitchFamily]   = useState(false);
   const [scheduleDate,      setScheduleDate]       = useState(new Date());
   const [showStatistics,    setShowStatistics]     = useState(false);
+  const [showInventory,     setShowInventory]      = useState(false);
+  const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
+  const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
+  const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
   const showAlert = useCallback((title: string, message: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${message}`);
@@ -135,10 +142,20 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     try {
       const res = await getLinkedPatients(uid);
       const list = Array.isArray(res.data) ? res.data : [];
-      setPatients(list);
+      
+      // Load offline patients from AsyncStorage
+      const offlinePatientsKey = `offline_patients_${uid}`;
+      const offlineData = await AsyncStorage.getItem(offlinePatientsKey);
+      const offlinePatients = offlineData ? JSON.parse(offlineData) : [];
+      
+      // Combine online and offline patients
+      const allPatients = [...list, ...offlinePatients];
+      setPatients(allPatients);
       await cachePatients(uid, list);
 
       const next: Record<string, PatientMedication[]> = {};
+      
+      // Load medications for online patients
       for (const p of list) {
         try {
           const mres = await getMedications(p.firebase_uid);
@@ -148,6 +165,21 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           next[p.firebase_uid] = [];
         }
       }
+      
+      // Add medications for offline patients
+      offlinePatients.forEach((p: any) => {
+        next[p.id] = p.medications.map((med: any) => ({
+          id: `${p.id}_${med.name}`,
+          name: med.name,
+          dosage: med.dosage,
+          frequency: med.frequency,
+          time: med.time,
+          taken: false,
+          missed: false,
+          suspended: false,
+        }));
+      });
+      
       setScheduleByPatient(next);
     } catch {
       const cached = await getCachedPatients(uid);
@@ -257,6 +289,43 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       }
     }
   }, [scheduleByPatient, caregiverName, patients]);
+
+  const handleSaveOfflinePatient = useCallback(async (patientData: OfflinePatientData) => {
+    setSavingOfflinePatient(true);
+    try {
+      // Store offline patients in AsyncStorage
+      const offlinePatientsKey = `offline_patients_${uid}`;
+      const existingData = await AsyncStorage.getItem(offlinePatientsKey);
+      const existingPatients = existingData ? JSON.parse(existingData) : [];
+      
+      const newPatient = {
+        id: `offline_${Date.now()}`,
+        ...patientData,
+        createdAt: new Date().toISOString(),
+      };
+      
+      const updatedPatients = [...existingPatients, newPatient];
+      await AsyncStorage.setItem(offlinePatientsKey, JSON.stringify(updatedPatients));
+      
+      // Reload patients to include offline patients
+      await fetchPatients();
+      
+      if (Platform.OS === 'web') {
+        window.alert(`Offline patient "${patientData.name}" saved with ${patientData.medications.length} medications.`);
+      } else {
+        Alert.alert('Success', `Offline patient "${patientData.name}" saved with ${patientData.medications.length} medications.`);
+      }
+      setShowOfflinePatientModal(false);
+    } catch {
+      if (Platform.OS === 'web') {
+        window.alert('Failed to save offline patient');
+      } else {
+        Alert.alert('Error', 'Failed to save offline patient');
+      }
+    } finally {
+      setSavingOfflinePatient(false);
+    }
+  }, [uid, fetchPatients]);
 
   useEffect(() => { fetchPatients(false); }, [fetchPatients]);
 
@@ -872,6 +941,12 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         sub="Redeem code or review patient requests"
         onPress={() => setShowLinkModal(true)}
       />
+      <MenuRow
+        icon="person-add-outline"
+        label="Add offline patient"
+        sub="Create medication schedule for patient without phone"
+        onPress={() => setShowOfflinePatientModal(true)}
+      />
 
       <Text style={styles.manageSection}>Settings</Text>
       {onSwitchToFamily && (
@@ -882,6 +957,19 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     onPress={() => setShowSwitchFamily(true)}
   />
 )}
+      <MenuRow
+        icon="cube-outline"
+        label="Medication Inventory"
+        sub="View and manage patient medication stock"
+        onPress={() => {
+          if (patients.length > 0) {
+            setSelectedPatientForInventory(patients[0].firebase_uid);
+            setShowInventory(true);
+          } else {
+            showAlert('No patients', 'Link a patient first to manage their medication inventory.');
+          }
+        }}
+      />
       <MenuRow
         icon="bar-chart-outline"
         label="Statistics"
@@ -1205,6 +1293,18 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         </View>
       </View>
     </Modal>
+    <MedicationInventoryModal
+      visible={showInventory}
+      uid={selectedPatientForInventory || ''}
+      medications={selectedPatientForInventory ? scheduleByPatient[selectedPatientForInventory] || [] : []}
+      onClose={() => setShowInventory(false)}
+    />
+    <AddOfflinePatientModal
+      visible={showOfflinePatientModal}
+      onClose={() => setShowOfflinePatientModal(false)}
+      onSave={handleSaveOfflinePatient}
+      saving={savingOfflinePatient}
+    />
     </>
   );
 }
@@ -1353,8 +1453,8 @@ const styles = StyleSheet.create({
   homeGreeting: {
     backgroundColor: '#fff', borderRadius: 16, padding: 18,
     flexDirection: 'row', alignItems: 'center', gap: 14,
-    borderLeftWidth: 4, borderLeftColor: GREEN,
-    borderWidth: 1, borderColor: '#eef2ee',
+    borderLeftWidth: 4, borderLeftColor: '#e0e0e0',
+    borderWidth: 1, borderColor: '#e0e0e0',
   },
   homeGreetingIcon: {
     width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
@@ -1504,7 +1604,7 @@ const styles = StyleSheet.create({
   },
   scheduleTimePill: {
     borderWidth: 1.5,
-    borderColor: GREEN,
+    borderColor: '#e0e0e0',
     backgroundColor: '#fff',
     borderRadius: 10,
     paddingHorizontal: 8,
@@ -1513,7 +1613,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scheduleTimePillText: { fontSize: 11, fontWeight: '800', color: GREEN, textAlign: 'center' },
+  scheduleTimePillText: { fontSize: 11, fontWeight: '800', color: '#333', textAlign: 'center' },
   scheduleMedLineBold: { fontSize: 14, fontWeight: '800', color: '#222' },
   scheduleMedLineSub: { fontSize: 12, color: '#666', marginTop: 2 },
   screenTitle:           { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },

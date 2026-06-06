@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, ActivityIndicator, TextInput, Alert, Platform,
 } from 'react-native';
 import AppIcon from '@/components/AppIcon';
 import AppLogo from '@/components/AppLogo';
@@ -30,6 +30,13 @@ export default function MedicationInventoryModal({
 }: Props) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAddMed, setShowAddMed] = useState(false);
+  const [newMedName, setNewMedName] = useState('');
+  const [newMedDosage, setNewMedDosage] = useState('');
+  const [newMedUnit, setNewMedUnit] = useState('tablets');
+  const [newMedQty, setNewMedQty] = useState('30');
+  const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
+  const [editingQtyValue, setEditingQtyValue] = useState('');
 
   useEffect(() => {
     if (!visible) return;
@@ -47,6 +54,49 @@ export default function MedicationInventoryModal({
   const refill = async (id: string) => {
     const next = await refillInventoryItem(uid, id, 30);
     setItems(next);
+  };
+
+  const setDirectQty = async (id: string, qty: number) => {
+    const updatedItems = items.map(item =>
+      item.medicationId === id ? { ...item, quantity: Math.max(0, qty) } : item
+    );
+    setItems(updatedItems);
+    // Save to AsyncStorage
+    const { saveInventory } = await import('@/lib/medicationInventory');
+    await saveInventory(uid, updatedItems);
+  };
+
+  const addCustomMedication = async () => {
+    if (!newMedName.trim()) {
+      if (Platform.OS === 'web') {
+        window.alert('Please enter a medication name.');
+      } else {
+        Alert.alert('Required', 'Please enter a medication name.');
+      }
+      return;
+    }
+
+    const newItem: InventoryItem = {
+      medicationId: `custom_${Date.now()}`,
+      name: newMedName.trim(),
+      dosage: newMedDosage.trim() || 'As prescribed',
+      quantity: parseInt(newMedQty, 10) || 30,
+      unit: newMedUnit,
+      lowThreshold: 5,
+    };
+
+    const updatedItems = [...items, newItem];
+    setItems(updatedItems);
+    
+    // Save to AsyncStorage
+    const { saveInventory } = await import('@/lib/medicationInventory');
+    await saveInventory(uid, updatedItems);
+
+    // Reset form
+    setNewMedName('');
+    setNewMedDosage('');
+    setNewMedQty('30');
+    setShowAddMed(false);
   };
 
   const lowCount = items.filter(i => i.quantity <= i.lowThreshold).length;
@@ -84,6 +134,7 @@ export default function MedicationInventoryModal({
                 items.map(item => {
                   const low = item.quantity <= item.lowThreshold;
                   const focused = item.medicationId === focusMedId;
+                  const isEditing = editingQtyId === item.medicationId;
                   return (
                     <View
                       key={item.medicationId}
@@ -97,23 +148,124 @@ export default function MedicationInventoryModal({
                         </Text>
                       </View>
                       <View style={s.qtyCol}>
-                        <View style={s.stepper}>
-                          <TouchableOpacity style={s.stepBtn} onPress={() => changeQty(item.medicationId, -1)}>
-                            <Text style={s.stepBtnText}>−</Text>
-                          </TouchableOpacity>
-                          <Text style={s.qtyNum}>{item.quantity}</Text>
-                          <TouchableOpacity style={s.stepBtn} onPress={() => changeQty(item.medicationId, 1)}>
-                            <Text style={s.stepBtnText}>+</Text>
-                          </TouchableOpacity>
-                        </View>
-                        <TouchableOpacity style={s.refillBtn} onPress={() => refill(item.medicationId)}>
-                          <AppIcon name="refresh-outline" size={14} color="#fff" />
-                          <Text style={s.refillText}>Refill +30</Text>
-                        </TouchableOpacity>
+                        {isEditing ? (
+                          <View style={s.editQtyRow}>
+                            <TextInput
+                              style={s.qtyInput}
+                              value={editingQtyValue}
+                              onChangeText={setEditingQtyValue}
+                              keyboardType="number-pad"
+                              autoFocus
+                              onSubmitEditing={() => {
+                                const qty = parseInt(editingQtyValue, 10);
+                                if (!isNaN(qty)) {
+                                  setDirectQty(item.medicationId, qty);
+                                }
+                                setEditingQtyId(null);
+                                setEditingQtyValue('');
+                              }}
+                              onBlur={() => {
+                                setEditingQtyId(null);
+                                setEditingQtyValue('');
+                              }}
+                            />
+                            <TouchableOpacity
+                              style={s.saveQtyBtn}
+                              onPress={() => {
+                                const qty = parseInt(editingQtyValue, 10);
+                                if (!isNaN(qty)) {
+                                  setDirectQty(item.medicationId, qty);
+                                }
+                                setEditingQtyId(null);
+                                setEditingQtyValue('');
+                              }}
+                            >
+                              <Text style={s.saveQtyText}>✓</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <>
+                            <TouchableOpacity onPress={() => {
+                              setEditingQtyId(item.medicationId);
+                              setEditingQtyValue(item.quantity.toString());
+                            }}>
+                              <Text style={s.qtyNum}>{item.quantity}</Text>
+                            </TouchableOpacity>
+                            <View style={s.stepper}>
+                              <TouchableOpacity style={s.stepBtn} onPress={() => changeQty(item.medicationId, -1)}>
+                                <Text style={s.stepBtnText}>−</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity style={s.stepBtn} onPress={() => changeQty(item.medicationId, 1)}>
+                                <Text style={s.stepBtnText}>+</Text>
+                              </TouchableOpacity>
+                            </View>
+                            <TouchableOpacity style={s.refillBtn} onPress={() => refill(item.medicationId)}>
+                              <AppIcon name="refresh-outline" size={14} color="#fff" />
+                              <Text style={s.refillText}>Refill +30</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
                       </View>
                     </View>
                   );
                 })
+              )}
+
+              {/* Add custom medication button */}
+              <TouchableOpacity style={s.addCustomBtn} onPress={() => setShowAddMed(!showAddMed)}>
+                <AppIcon name="add-circle-outline" size={20} color={theme.green} />
+                <Text style={s.addCustomText}>Add medication not on schedule</Text>
+              </TouchableOpacity>
+
+              {showAddMed && (
+                <View style={s.addCustomForm}>
+                  <View style={s.formField}>
+                    <Text style={s.formLabel}>Medication Name *</Text>
+                    <TextInput
+                      style={s.formInput}
+                      placeholder="e.g., Vitamin D"
+                      placeholderTextColor="#c0c0c0"
+                      value={newMedName}
+                      onChangeText={setNewMedName}
+                    />
+                  </View>
+                  <View style={s.formField}>
+                    <Text style={s.formLabel}>Dosage</Text>
+                    <TextInput
+                      style={s.formInput}
+                      placeholder="e.g., 1000 IU"
+                      placeholderTextColor="#c0c0c0"
+                      value={newMedDosage}
+                      onChangeText={setNewMedDosage}
+                    />
+                  </View>
+                  <View style={s.formRow}>
+                    <View style={[s.formField, { flex: 1 }]}>
+                      <Text style={s.formLabel}>Initial Qty</Text>
+                      <TextInput
+                        style={s.formInput}
+                        placeholder="30"
+                        placeholderTextColor="#c0c0c0"
+                        value={newMedQty}
+                        onChangeText={setNewMedQty}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                    <View style={[s.formField, { flex: 1 }]}>
+                      <Text style={s.formLabel}>Unit</Text>
+                      <TextInput
+                        style={s.formInput}
+                        placeholder="tablets"
+                        placeholderTextColor="#c0c0c0"
+                        value={newMedUnit}
+                        onChangeText={setNewMedUnit}
+                      />
+                    </View>
+                  </View>
+                  <TouchableOpacity style={s.addMedSubmitBtn} onPress={addCustomMedication}>
+                    <Text style={s.addMedSubmitText}>Add to Inventory</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </ScrollView>
           )}
@@ -213,4 +365,66 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   doneText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  editQtyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qtyInput: {
+    width: 60,
+    height: 36,
+    borderWidth: 1.5,
+    borderColor: theme.green,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    backgroundColor: '#fff',
+  },
+  saveQtyBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: theme.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveQtyText: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  addCustomBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: theme.green,
+    borderStyle: 'dashed',
+    backgroundColor: theme.greenLight,
+    marginTop: 8,
+  },
+  addCustomText: { fontSize: 14, fontWeight: '700', color: theme.green },
+  addCustomForm: {
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    gap: 12,
+  },
+  formField: { gap: 6 },
+  formLabel: { fontSize: 12, fontWeight: '700', color: theme.textSecondary },
+  formInput: {
+    borderWidth: 1.5,
+    borderColor: theme.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    backgroundColor: '#fff',
+  },
+  formRow: { flexDirection: 'row', gap: 12 },
+  addMedSubmitBtn: {
+    backgroundColor: theme.green,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  addMedSubmitText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 });

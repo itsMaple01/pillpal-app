@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "primaryColor": "#2d7a3a",
     "backgroundColor": "#2d7a3a",
     "splash": {

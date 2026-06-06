@@ -122,6 +122,16 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
   const [hour,           setHour]           = useState('08');
   const [minute,         setMinute]         = useState('00');
   const [ampm,           setAmpm]           = useState<'AM' | 'PM'>('AM');
+  // New fields for real-world medication management
+  const [currentStock,   setCurrentStock]   = useState('');
+  const [refillThreshold,setRefillThreshold]= useState('');
+  const [prescriptionNumber, setPrescriptionNumber] = useState('');
+  const [doctorName,     setDoctorName]     = useState('');
+  const [pharmacyName,   setPharmacyName]   = useState('');
+  const [instructions,   setInstructions]   = useState('');
+  const [takeWithFood,   setTakeWithFood]   = useState(false);
+  const [showInventory,  setShowInventory]  = useState(false);
+  const [showPrescription, setShowPrescription] = useState(false);
 
   const today = new Date();
 
@@ -131,6 +141,11 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
     setEndDate(null); setShowTimePicker(false);
     setHour('08'); setMinute('00'); setAmpm('AM');
     setCalMonth(new Date());
+    setCurrentStock(''); setRefillThreshold('');
+    setPrescriptionNumber(''); setDoctorName('');
+    setPharmacyName(''); setInstructions('');
+    setTakeWithFood(false);
+    setShowInventory(false); setShowPrescription(false);
   };
 
   const handleClose = () => { reset(); onClose(); };
@@ -148,6 +163,13 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
         setMinute(tm[2]);
         setAmpm(tm[3].toUpperCase() === 'PM' ? 'PM' : 'AM');
       }
+      setCurrentStock(editingMed.currentStock?.toString() || '');
+      setRefillThreshold(editingMed.refillThreshold?.toString() || '');
+      setPrescriptionNumber(editingMed.prescriptionNumber || '');
+      setDoctorName(editingMed.doctorName || '');
+      setPharmacyName(editingMed.pharmacyName || '');
+      setInstructions(editingMed.instructions || '');
+      setTakeWithFood(editingMed.takeWithFood || false);
     } else {
       reset();
       const occupied = existingMedicationTimes
@@ -176,6 +198,13 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
       dosage:    dosage.trim() || 'As prescribed',
       frequency: FREQUENCIES[freqIdx].label,
       time:      `${hour}:${minute} ${ampm}`,
+      currentStock: currentStock ? parseInt(currentStock, 10) : undefined,
+      refillThreshold: refillThreshold ? parseInt(refillThreshold, 10) : undefined,
+      prescriptionNumber: prescriptionNumber.trim() || undefined,
+      doctorName: doctorName.trim() || undefined,
+      pharmacyName: pharmacyName.trim() || undefined,
+      instructions: instructions.trim() || undefined,
+      takeWithFood: takeWithFood || undefined,
     });
     if (!editingMed) reset();
   };
@@ -461,6 +490,134 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
                   </TouchableOpacity>
                 </View>
               )}
+            </View>
+
+            {/* Inventory Tracking Section */}
+            <View style={ms.fieldGroup}>
+              <TouchableOpacity
+                style={ms.collapsibleHeader}
+                onPress={() => setShowInventory(!showInventory)}
+                activeOpacity={0.8}
+              >
+                <View style={ms.labelRow}>
+                  <AppIcon name="cube-outline" size={16} color={GREEN} />
+                  <Text style={ms.label}>INVENTORY TRACKING (Optional)</Text>
+                </View>
+                <Text style={ms.dropdownArrow}>{showInventory ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {showInventory && (
+                <View style={ms.collapsibleContent}>
+                  <View style={ms.fieldGroup}>
+                    <Text style={ms.subLabel}>Current Stock</Text>
+                    <TextInput
+                      style={ms.input}
+                      placeholder="e.g., 30 tablets"
+                      placeholderTextColor="#c0c0c0"
+                      value={currentStock}
+                      onChangeText={setCurrentStock}
+                      keyboardType="number-pad"
+                      autoCorrect={false}
+                    />
+                  </View>
+                  <View style={ms.fieldGroup}>
+                    <Text style={ms.subLabel}>Refill Alert Threshold</Text>
+                    <TextInput
+                      style={ms.input}
+                      placeholder="Alert when stock falls below this number"
+                      placeholderTextColor="#c0c0c0"
+                      value={refillThreshold}
+                      onChangeText={setRefillThreshold}
+                      keyboardType="number-pad"
+                      autoCorrect={false}
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Prescription Details Section */}
+            <View style={ms.fieldGroup}>
+              <TouchableOpacity
+                style={ms.collapsibleHeader}
+                onPress={() => setShowPrescription(!showPrescription)}
+                activeOpacity={0.8}
+              >
+                <View style={ms.labelRow}>
+                  <AppIcon name="document-text-outline" size={16} color={GREEN} />
+                  <Text style={ms.label}>PRESCRIPTION DETAILS (Optional)</Text>
+                </View>
+                <Text style={ms.dropdownArrow}>{showPrescription ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {showPrescription && (
+                <View style={ms.collapsibleContent}>
+                  <View style={ms.fieldGroup}>
+                    <Text style={ms.subLabel}>Prescription Number</Text>
+                    <TextInput
+                      style={ms.input}
+                      placeholder="e.g., RX123456"
+                      placeholderTextColor="#c0c0c0"
+                      value={prescriptionNumber}
+                      onChangeText={setPrescriptionNumber}
+                      autoCorrect={false}
+                      autoCapitalize="characters"
+                    />
+                  </View>
+                  <View style={ms.fieldGroup}>
+                    <Text style={ms.subLabel}>Doctor Name</Text>
+                    <TextInput
+                      style={ms.input}
+                      placeholder="Prescribing doctor"
+                      placeholderTextColor="#c0c0c0"
+                      value={doctorName}
+                      onChangeText={setDoctorName}
+                      autoCorrect={false}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                  <View style={ms.fieldGroup}>
+                    <Text style={ms.subLabel}>Pharmacy Name</Text>
+                    <TextInput
+                      style={ms.input}
+                      placeholder="Pharmacy name"
+                      placeholderTextColor="#c0c0c0"
+                      value={pharmacyName}
+                      onChangeText={setPharmacyName}
+                      autoCorrect={false}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Instructions Section */}
+            <View style={ms.fieldGroup}>
+              <View style={ms.labelRow}>
+                <AppIcon name="information-circle-outline" size={16} color={GREEN} />
+                <Text style={ms.label}>INSTRUCTIONS (Optional)</Text>
+              </View>
+              <TextInput
+                style={[ms.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                placeholder="e.g., Take with food, avoid alcohol, store in cool place"
+                placeholderTextColor="#c0c0c0"
+                value={instructions}
+                onChangeText={setInstructions}
+                multiline
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={ms.switchRow}
+                onPress={() => setTakeWithFood(!takeWithFood)}
+                activeOpacity={0.8}
+              >
+                <Text style={ms.switchLabel}>Take with food</Text>
+                <Switch
+                  value={takeWithFood}
+                  onValueChange={setTakeWithFood}
+                  trackColor={{ false: '#e0e0e0', true: GREEN }}
+                  thumbColor={takeWithFood ? '#fff' : '#f0f0f0'}
+                />
+              </TouchableOpacity>
             </View>
 
           </ScrollView>
@@ -1353,7 +1510,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
     flexDirection: 'row', alignItems: 'center', gap: 12,
     overflow: 'hidden',
-    borderWidth: 1, borderColor: '#eef2ee',
+    borderWidth: 1, borderColor: '#e0e0e0',
     shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
   cardAccent: {
@@ -1362,7 +1519,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 4,
-    backgroundColor: GREEN,
+    backgroundColor: '#e0e0e0',
   },
   greetingIconWrap: {
     width: 48, height: 48, borderRadius: 14, backgroundColor: GREEN_LIGHT,
@@ -1709,6 +1866,38 @@ const ms = StyleSheet.create({
     backgroundColor: GREEN, shadowColor: GREEN, shadowOpacity: 0.35, shadowRadius: 8, elevation: 4,
   },
   saveText: { fontSize: 15, fontWeight: '800', color: '#fff' },
+
+  // New styles for enhanced medication management
+  collapsibleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  collapsibleContent: {
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  subLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#888',
+    marginBottom: 6,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  switchLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
 });
 
 // ─────────────────────────────────────────────────────────────

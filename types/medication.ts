@@ -10,4 +10,17 @@ export interface PatientMedication {
   suspended?: boolean;
   notify_enabled?: boolean;
   missed?: boolean;
+  // Inventory tracking
+  currentStock?: number;
+  refillThreshold?: number;
+  lastRefillDate?: string;
+  // Prescription details
+  prescriptionNumber?: string;
+  doctorName?: string;
+  pharmacyName?: string;
+  // Instructions
+  instructions?: string;
+  takeWithFood?: boolean;
+  // Multiple dosing times (comma-separated)
+  additionalTimes?: string[];
 }
