@@ -19,6 +19,7 @@ export interface Medication {
   taken: boolean;
   suspended?: boolean;
   notify_enabled?: boolean;
+  missed?: boolean;
 }
 
 interface Props {
@@ -50,8 +51,9 @@ export default function MedicationsScreen({
   readOnly = false,
   showAlertsEntry = false,
 }: Props) {
-  const pending = medications.filter(m => !m.taken && !m.suspended).length;
+  const pending = medications.filter(m => !m.taken && !m.suspended && !m.missed).length;
   const taken   = medications.filter(m =>  m.taken && !m.suspended).length;
+  const missed  = medications.filter(m => m.missed && !m.suspended).length;
   const title = patientName ? `${patientName}'s medications` : 'My medications';
 
   return (
@@ -69,6 +71,12 @@ export default function MedicationsScreen({
           <Text style={[s.statNum, { color: theme.textSecondary }]}>{taken}</Text>
           <Text style={[s.statLabel, { color: theme.textMuted }]}>Taken</Text>
         </View>
+        {missed > 0 && (
+          <View style={[s.statCard, { backgroundColor: theme.dangerBg }]}>
+            <Text style={[s.statNum, { color: theme.danger }]}>{missed}</Text>
+            <Text style={[s.statLabel, { color: theme.danger }]}>Missed</Text>
+          </View>
+        )}
       </View>
 
       <View style={s.sectionHeadRow}>
@@ -112,17 +120,23 @@ export default function MedicationsScreen({
               <View
                 style={[
                   s.strip,
-                  { backgroundColor: med.suspended ? '#999' : med.taken ? '#bdbdbd' : theme.green },
+                  { backgroundColor: med.suspended ? '#999' : med.missed ? theme.danger : med.taken ? '#bdbdbd' : theme.green },
                 ]}
               />
               <View style={s.medBody}>
                 <Text style={[s.medName, med.taken && s.medNameTaken]} numberOfLines={1}>
-                  {med.name}{med.suspended ? ' · Paused' : ''}
+                  {med.name}{med.suspended ? ' · Paused' : med.missed ? ' · Missed' : ''}
                 </Text>
                 <View style={s.metaRow}>
                   <Text style={s.metaText}>{med.dosage}</Text>
                   <Text style={s.metaDot}>·</Text>
                   <Text style={s.metaText}>{med.time}</Text>
+                  {med.missed && (
+                    <>
+                      <Text style={s.metaDot}>·</Text>
+                      <Text style={[s.metaText, { color: theme.danger }]}>Missed dose</Text>
+                    </>
+                  )}
                 </View>
                 {!readOnly && (onRefill || onSuspend) && (
                   <View style={s.quickRow}>

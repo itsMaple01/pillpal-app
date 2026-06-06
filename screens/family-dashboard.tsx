@@ -1,9 +1,10 @@
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  StatusBar, Dimensions, Alert, Platform, ActivityIndicator,
+  StatusBar, Dimensions, Alert, Platform, ActivityIndicator, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
   saveExpoPushToken,
@@ -22,12 +23,16 @@ import NavTutorialOverlay from '@/components/NavTutorialOverlay';
 import SwitchModeModal from '@/components/SwitchModeModal';
 import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
+import StatisticsScreen from '@/components/StatisticsScreen';
+import MedicationInventoryModal from '@/components/MedicationInventoryModal';
+import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
 import { theme } from '@/lib/theme';
 import {
   isTutorialDone, setTutorialDone, FAMILY_TUTORIAL,
 } from '@/lib/tutorial';
+import { exportDataToCSV } from '@/lib/dataExport';
 import type { PatientMedication } from '@/types/medication';
 import type { ComponentProps } from 'react';
 
@@ -75,13 +80,29 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSwitchMode, setShowSwitchMode] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(new Date());
+  const [showStatistics, setShowStatistics] = useState(false);
+  const [showInventory, setShowInventory] = useState(false);
+  const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
+  const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
+  const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
   const loadPeople = useCallback(async () => {
     try {
       const res = await getLinkedPatients(uid);
       const list = Array.isArray(res.data) ? res.data : [];
-      setPeople(list.slice(0, 5));
+      
+      // Load offline patients from AsyncStorage
+      const offlinePatientsKey = `offline_patients_${uid}`;
+      const offlineData = await AsyncStorage.getItem(offlinePatientsKey);
+      const offlinePatients = offlineData ? JSON.parse(offlineData) : [];
+      
+      // Combine online and offline patients
+      const allPeople = [...list.slice(0, 5), ...offlinePatients];
+      setPeople(allPeople);
+      
       const medMap: Record<string, PatientMedication[]> = {};
+      
+      // Load medications for online patients
       await Promise.all(
         list.slice(0, 5).map(async (p: LinkedPerson) => {
           try {
@@ -93,6 +114,21 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           }
         }),
       );
+      
+      // Add medications for offline patients
+      offlinePatients.forEach((p: any) => {
+        medMap[p.id] = p.medications.map((med: any) => ({
+          id: `${p.id}_${med.name}`,
+          name: med.name,
+          dosage: med.dosage,
+          frequency: med.frequency,
+          time: med.time,
+          taken: false,
+          missed: false,
+          suspended: false,
+        }));
+      });
+      
       setMedsByPerson(medMap);
     } catch {
       setPeople([]);
@@ -153,6 +189,97 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       alert('Error', 'Could not send reminder.');
     }
   };
+
+  const handleExportData = useCallback(async () => {
+    try {
+      const exportDate = new Date().toISOString().slice(0, 10);
+      const allMeds = Object.values(medsByPerson).flat();
+      const stats = {
+        total: allMeds.length,
+        taken: allMeds.filter(m => m.taken && !m.suspended).length,
+        missed: allMeds.filter(m => m.missed && !m.suspended).length,
+        late: 0,
+        pending: allMeds.filter(m => !m.taken && !m.missed && !m.suspended).length,
+        complianceRate: allMeds.length > 0 
+          ? Math.round((allMeds.filter(m => m.taken && !m.suspended).length / allMeds.length) * 100) 
+          : 0,
+      };
+
+      const exportData = {
+        exportDate,
+        user: {
+          name: displayName,
+          email: '',
+          role: 'family',
+        },
+        medications: allMeds.map(m => ({
+          date: exportDate,
+          medicationName: m.name,
+          dosage: m.dosage,
+          time: m.time,
+          status: m.taken ? 'taken' as const : m.missed ? 'missed' as const : 'pending' as const,
+        })),
+        connectedAccounts: people.map(p => ({
+          id: p.firebase_uid,
+          name: p.full_name || p.email || 'Unknown',
+          type: 'patient' as const,
+          email: p.email || '',
+        })),
+        statistics: stats,
+      };
+
+      await exportDataToCSV(exportData);
+      if (Platform.OS === 'web') {
+        window.alert('Data exported successfully!');
+      } else {
+        Alert.alert('Success', 'Data exported successfully!');
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      if (Platform.OS === 'web') {
+        window.alert('Could not export data. Please try again.');
+      } else {
+        Alert.alert('Error', 'Could not export data. Please try again.');
+      }
+    }
+  }, [medsByPerson, displayName, people]);
+
+  const handleSaveOfflinePatient = useCallback(async (patientData: OfflinePatientData) => {
+    setSavingOfflinePatient(true);
+    try {
+      // Store offline patients in AsyncStorage
+      const offlinePatientsKey = `offline_patients_${uid}`;
+      const existingData = await AsyncStorage.getItem(offlinePatientsKey);
+      const existingPatients = existingData ? JSON.parse(existingData) : [];
+      
+      const newPatient = {
+        id: `offline_${Date.now()}`,
+        ...patientData,
+        createdAt: new Date().toISOString(),
+      };
+      
+      const updatedPatients = [...existingPatients, newPatient];
+      await AsyncStorage.setItem(offlinePatientsKey, JSON.stringify(updatedPatients));
+      
+      // Reload people to include offline patients
+      await loadPeople();
+      
+      if (Platform.OS === 'web') {
+        window.alert(`Offline patient "${patientData.name}" saved with ${patientData.medications.length} medications.`);
+      } else {
+        Alert.alert('Success', `Offline patient "${patientData.name}" saved with ${patientData.medications.length} medications.`);
+      }
+      setShowOfflinePatientModal(false);
+    } catch {
+      if (Platform.OS === 'web') {
+        window.alert('Failed to save offline patient');
+      } else {
+        Alert.alert('Error', 'Failed to save offline patient');
+      }
+    } finally {
+      setSavingOfflinePatient(false);
+    }
+  }, [uid, loadPeople]);
 
   const totalMedsToday = people.reduce((sum, p) => {
     const meds = medsByPerson[p.firebase_uid] || [];
@@ -330,6 +457,37 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         onPress={() => setShowLink(true)}
       />
       <MenuRow
+        icon="person-add-outline"
+        label="Add offline patient"
+        sub="Create medication schedule for patient without phone"
+        onPress={() => setShowOfflinePatientModal(true)}
+      />
+      <MenuRow
+        icon="cube-outline"
+        label="Medication Inventory"
+        sub="View and manage medication stock"
+        onPress={() => {
+          if (people.length > 0) {
+            setSelectedPatientForInventory(people[0].firebase_uid);
+            setShowInventory(true);
+          } else {
+            Alert.alert('No patients', 'Link a family member first to manage their medication inventory.');
+          }
+        }}
+      />
+      <MenuRow
+        icon="bar-chart-outline"
+        label="Statistics"
+        sub="View medication statistics"
+        onPress={() => setShowStatistics(true)}
+      />
+      <MenuRow
+        icon="download-outline"
+        label="Export data"
+        sub="Download your medication data"
+        onPress={handleExportData}
+      />
+      <MenuRow
         icon="book-outline"
         label="Show tutorial"
         sub="Learn what each tab does"
@@ -417,6 +575,45 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           onLogout();
         }}
       />
+      <Modal visible={showStatistics} animationType="slide" onRequestClose={() => setShowStatistics(false)}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStatistics(false)} />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Statistics</Text>
+              <TouchableOpacity onPress={() => setShowStatistics(false)}>
+                <AppIcon name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <StatisticsScreen
+              stats={{
+                total: Object.values(medsByPerson).flat().length,
+                taken: Object.values(medsByPerson).flat().filter(m => m.taken && !m.suspended).length,
+                missed: Object.values(medsByPerson).flat().filter(m => m.missed && !m.suspended).length,
+                pending: Object.values(medsByPerson).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
+              }}
+              connectedAccounts={people.map(p => ({
+                id: p.firebase_uid,
+                name: p.full_name || p.email || 'Unknown',
+                type: 'patient' as const,
+                email: p.email || '',
+              }))}
+            />
+          </View>
+        </View>
+      </Modal>
+      <MedicationInventoryModal
+        visible={showInventory}
+        uid={selectedPatientForInventory || ''}
+        medications={selectedPatientForInventory ? medsByPerson[selectedPatientForInventory] || [] : []}
+        onClose={() => setShowInventory(false)}
+      />
+      <AddOfflinePatientModal
+        visible={showOfflinePatientModal}
+        onClose={() => setShowOfflinePatientModal(false)}
+        onSave={handleSaveOfflinePatient}
+        saving={savingOfflinePatient}
+      />
     </View>
   );
 }
@@ -434,7 +631,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: '#e0e0e0',
   },
   cardAccent: {
     position: 'absolute',
@@ -442,7 +639,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 4,
-    backgroundColor: GREEN,
+    backgroundColor: '#e0e0e0',
   },
   greetingIconWrap: {
     width: 48,
@@ -527,7 +724,7 @@ const styles = StyleSheet.create({
   },
   scheduleTimeBox: {
     borderWidth: 1.5,
-    borderColor: theme.green,
+    borderColor: '#e0e0e0',
     backgroundColor: '#fff',
     borderRadius: 10,
     paddingHorizontal: 8,
@@ -536,7 +733,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scheduleTimeText: { fontSize: 11, fontWeight: '800', color: theme.green, textAlign: 'center' },
+  scheduleTimeText: { fontSize: 11, fontWeight: '800', color: '#333', textAlign: 'center' },
   scheduleMedName: { fontSize: TEXT.md, fontWeight: '800', color: '#222' },
   scheduleMedSub: { fontSize: TEXT.sm, color: theme.textSecondary, marginTop: 2 },
   slotEmpty: { fontSize: TEXT.sm, color: theme.textMuted, paddingVertical: 8 },
@@ -559,4 +756,30 @@ const styles = StyleSheet.create({
   },
   logoutText: { color: '#c62828', fontWeight: '800', fontSize: TEXT.md },
   version: { textAlign: 'center', color: '#ccc', fontSize: TEXT.xs, marginTop: 20 },
+
+  // Statistics modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: TEXT.lg,
+    fontWeight: '800',
+    color: '#222',
+  },
 });
