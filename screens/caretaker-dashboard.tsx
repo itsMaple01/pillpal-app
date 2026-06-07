@@ -200,9 +200,19 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     getUser(uid)
       .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
       .catch(() => {});
-    registerForPushNotificationsAsync().then(token => {
-      if (token) saveExpoPushToken(uid, token).catch(() => {});
-    });
+   registerForPushNotificationsAsync().then(async token => {
+  console.log('TOKEN RESULT:', token);
+  if (token) {
+    try {
+      await saveExpoPushToken(uid, token);
+      console.log('TOKEN SAVED SUCCESSFULLY');
+    } catch (err) {
+      console.error('TOKEN SAVE FAILED:', err);
+    }
+  } else {
+    console.log('NO TOKEN RETURNED');
+  }
+});
     isTutorialDone('caregiver', uid).then(done => {
       if (!done) {
         setTutorialIdx(0);

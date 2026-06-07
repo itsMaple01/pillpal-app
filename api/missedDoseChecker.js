@@ -26,7 +26,7 @@ async function checkMissedDoses() {
     console.log(`🔍 Checking missed doses: found ${result.rows.length} pending doses`);
 
     for (const dose of result.rows) {
-      await axios.post('http://localhost:3001/api/alerts', {
+      await axios.post('https://pillpal-app.onrender.com/api/alerts', {
         caretaker_uid:   dose.caretaker_uid,
         patient_uid:     dose.patient_uid,
         patient_name:    dose.patient_name,
