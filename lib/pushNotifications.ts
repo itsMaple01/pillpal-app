@@ -83,10 +83,6 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
   console.log('appOwnership:', Constants.appOwnership);
 
   await setupNotifications();
-  if (isExpoGo()) {
-    console.log('Skipping push registration: running in Expo Go');
-    return null;
-  }
 
   try {
     const Notifications = await getNotifications();

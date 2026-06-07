@@ -3,20 +3,17 @@ import * as path from 'path';
 
 const MODEL_DIR = path.join(__dirname);
 
-// Feature order must match training exactly
+// Feature order must match training exactly — 13 features
 const FEATURES = [
   'age', 'health_condition', 'medication_count', 'notify_enabled',
   'suspended', 'hour_of_day', 'day_of_week', 'is_weekend',
   'streak_7d', 'missed_last', 'alert_sent',
-  'avg_response_delay_minutes', 'preferred_lead_minutes', 'cluster_label'
+  'avg_response_delay_minutes', 'preferred_lead_minutes'
 ];
 
 // Match the category encoding from training
 const HEALTH_CONDITION_MAP: Record<string, number> = {
   asthma: 0, copd: 1, diabetes: 2, heart_disease: 3, hypertension: 4, none: 5
-};
-const CLUSTER_LABEL_MAP: Record<string, number> = {
-  consistent: 0, early_responder: 1, irregular: 2, late_responder: 3
 };
 
 export interface PatientInput {
@@ -32,7 +29,6 @@ export interface PatientInput {
   alert_sent: boolean;
   avg_response_delay_minutes: number;
   preferred_lead_minutes: number;
-  cluster_label: string;        // from intelligence_profiles
 }
 
 export interface PredictionResult {
@@ -75,7 +71,6 @@ function encodeInput(input: PatientInput): Float32Array {
     input.alert_sent ? 1 : 0,
     input.avg_response_delay_minutes,
     input.preferred_lead_minutes,
-    CLUSTER_LABEL_MAP[input.cluster_label] ?? 2,
   ];
 
   return new Float32Array(values);
