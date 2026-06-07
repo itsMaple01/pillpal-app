@@ -14,7 +14,7 @@ interface Props {
 
 export default function StatTile({ icon, value, label, accent = '#2d7a3a', iconBg = '#e8f5e9' }: Props) {
   return (
-    <View style={[s.card, { borderTopColor: accent }]}>
+    <View style={s.card}>
       <View style={[s.iconWrap, { backgroundColor: iconBg }]}>
         <AppIcon name={icon} size={20} color={accent} />
       </View>
@@ -32,7 +32,6 @@ const s = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 8,
     alignItems: 'center',
-    borderTopWidth: 3,
     borderWidth: 1,
     borderColor: '#eef2ee',
     shadowColor: '#000',

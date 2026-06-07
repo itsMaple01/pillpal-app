@@ -7,6 +7,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+
+// Check if auth is initialized
+if (!auth) {
+  console.error('Firebase auth not initialized in role-select screen');
+}
 import { syncUser } from '@/api/index';
 import AppLogo from '@/components/AppLogo';
 import AppIcon from '@/components/AppIcon';
@@ -60,7 +65,9 @@ export default function RoleSelectScreen({ uid, email, signupProfile, onRoleSele
   };
 
   const handleBack = async () => {
-    await signOut(auth);
+    if (auth) {
+      await signOut(auth);
+    }
     onBack();
   };
 

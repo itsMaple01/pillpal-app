@@ -12,7 +12,7 @@ let lastScheduleKey = '';
 const SCHEDULE_STORAGE_KEY = 'gabayra:notification-schedule-key';
 
 function isExpoGo(): boolean {
-  return Constants.appOwnership === 'expo';
+  return Constants.executionEnvironment === 'storeClient';
 }
 
 async function getNotifications() {
@@ -40,25 +40,33 @@ export async function setupNotifications(): Promise<void> {
   try {
     const Notifications = await getNotifications();
     if (!handlerReady) {
-      Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldShowAlert: true,
-          shouldPlaySound: true,
-          shouldSetBadge: false,
-          shouldShowBanner: true,
-          shouldShowList: true,
-        }),
-      });
-      handlerReady = true;
+      try {
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+            shouldShowBanner: true,
+            shouldShowList: true,
+          }),
+        });
+        handlerReady = true;
+      } catch (handlerError) {
+        console.warn('Failed to set notification handler:', handlerError);
+      }
     }
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('medication-reminders', {
-        name: 'Medication reminders',
-        importance: Notifications.AndroidImportance.HIGH,
-        sound: 'default',
-        vibrationPattern: [0, 250, 250, 250],
-        enableVibrate: true,
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('medication-reminders', {
+          name: 'Medication reminders',
+          importance: Notifications.AndroidImportance.HIGH,
+          sound: 'default',
+          vibrationPattern: [0, 250, 250, 250],
+          enableVibrate: true,
+        });
+      } catch (channelError) {
+        console.warn('Failed to set notification channel:', channelError);
+      }
     }
   } catch (e) {
     if (!warned) {
@@ -70,8 +78,15 @@ export async function setupNotifications(): Promise<void> {
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
+
+  console.log('executionEnvironment:', Constants.executionEnvironment);
+  console.log('appOwnership:', Constants.appOwnership);
+
   await setupNotifications();
-  if (isExpoGo()) return null;
+  if (isExpoGo()) {
+    console.log('Skipping push registration: running in Expo Go');
+    return null;
+  }
 
   try {
     const Notifications = await getNotifications();
@@ -83,18 +98,26 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       });
       finalStatus = status;
     }
-    if (finalStatus !== 'granted') return null;
+    if (finalStatus !== 'granted') {
+      console.log('Push permission not granted:', finalStatus);
+      return null;
+    }
 
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
       Constants.easConfig?.projectId;
+
+    console.log('Using projectId:', projectId);
+
     const token = await Notifications.getExpoPushTokenAsync(
       projectId ? { projectId: String(projectId) } : undefined,
     );
+
+    console.log('EXPO PUSH TOKEN:', token.data);
     return token.data;
   } catch (e) {
     if (!warned) {
-      console.warn('Push registration skipped:', e);
+      console.warn('Push registration failed:', e);
       warned = true;
     }
     return null;
@@ -138,6 +161,7 @@ export async function rescheduleMedicationLocalNotifications(
       await AsyncStorage.removeItem(SCHEDULE_STORAGE_KEY);
       return;
     }
+
     let leadMinutes = 5;
     if (patientUid) {
       try {
@@ -165,17 +189,15 @@ export async function rescheduleMedicationLocalNotifications(
       const parsed = parseMedicationTime(med.time);
       if (!parsed) continue;
       const when = subtractMinutes(parsed.hour, parsed.minute, leadMinutes);
-      
-      // Calculate the trigger date/time
+
       const now = new Date();
       const triggerDate = new Date();
       triggerDate.setHours(when.hour, when.minute, 0, 0);
-      
-      // If the trigger time has already passed today, schedule for tomorrow
+
       if (triggerDate <= now) {
         triggerDate.setDate(triggerDate.getDate() + 1);
       }
-      
+
       await Notifications.scheduleNotificationAsync({
         content: {
           title: 'GabayRa',

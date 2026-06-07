@@ -28,26 +28,28 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
   const pieData = [
     {
       name: 'Taken',
-      population: stats.taken,
+      population: stats.taken || 0,
       color: theme.green,
       legendFontColor: theme.text,
       legendFontSize: 12,
     },
     {
       name: 'Missed',
-      population: stats.missed,
+      population: stats.missed || 0,
       color: theme.danger,
       legendFontColor: theme.text,
       legendFontSize: 12,
     },
     {
       name: 'Pending',
-      population: stats.pending,
+      population: stats.pending || 0,
       color: '#f5a623',
       legendFontColor: theme.text,
       legendFontSize: 12,
     },
   ];
+
+  const hasData = stats.total > 0;
 
   const chartConfig = {
     backgroundColor: '#ffffff',
@@ -84,8 +86,8 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
     ],
   };
 
-  const complianceRate = stats.total > 0 
-    ? Math.round((stats.taken / stats.total) * 100) 
+  const complianceRate = stats.total > 0
+    ? Math.round((stats.taken / stats.total) * 100)
     : 0;
 
   return (
@@ -124,43 +126,61 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
       {/* Pie Chart */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Distribution</Text>
-        <PieChart
-          data={pieData}
-          width={screenWidth - 48}
-          height={220}
-          chartConfig={chartConfig}
-          accessor="population"
-          backgroundColor="transparent"
-          paddingLeft="15"
-          absolute
-        />
+        {hasData ? (
+          <PieChart
+            data={pieData}
+            width={screenWidth - 48}
+            height={220}
+            chartConfig={chartConfig}
+            accessor="population"
+            backgroundColor="transparent"
+            paddingLeft="15"
+            absolute
+          />
+        ) : (
+          <View style={styles.noDataWrap}>
+            <Text style={styles.emptyText}>No medication data yet</Text>
+          </View>
+        )}
       </View>
 
       {/* Bar Chart - Taken */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Medications Taken (Monthly)</Text>
-        <BarChart
-          data={barData}
-          width={screenWidth - 48}
-          height={220}
-          chartConfig={chartConfig}
-          verticalLabelRotation={30}
-        />
+        {hasData ? (
+          <BarChart
+            data={barData}
+            width={screenWidth - 48}
+            height={220}
+            chartConfig={chartConfig}
+            verticalLabelRotation={30}
+          />
+        ) : (
+          <View style={styles.noDataWrap}>
+            <Text style={styles.emptyText}>No data yet</Text>
+          </View>
+        )}
       </View>
 
       {/* Bar Chart - Missed */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Missed Doses (Monthly)</Text>
-        <BarChart
-          data={missedBarData}
-          width={screenWidth - 48}
-          height={220}
-          chartConfig={{
-            ...chartConfig,
-            color: (opacity = 1) => `rgba(181, 74, 74, ${opacity})`,
-          }}
-          verticalLabelRotation={30}
-        />
+        {hasData ? (
+          <BarChart
+            data={missedBarData}
+            width={screenWidth - 48}
+            height={220}
+            chartConfig={{
+              ...chartConfig,
+              color: (opacity = 1) => `rgba(181, 74, 74, ${opacity})`,
+            }}
+            verticalLabelRotation={30}
+          />
+        ) : (
+          <View style={styles.noDataWrap}>
+            <Text style={styles.emptyText}>No data yet</Text>
+          </View>
+        )}
       </View>
 
       {/* Connected Accounts */}
@@ -268,6 +288,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  noDataWrap: {
+    paddingVertical: 32,
+    alignItems: 'center',
   },
   emptyText: {
     fontSize: TEXT.md,

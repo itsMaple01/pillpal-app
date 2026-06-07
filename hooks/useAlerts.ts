@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { collection, query, where, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
+// Check if db is initialized
+if (!db) {
+  console.error('Firebase db not initialized in useAlerts hook');
+}
+
 export interface Alert {
   id: string;
   caretaker_uid: string;
@@ -19,7 +24,7 @@ export function useAlerts(caretaker_uid: string) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!caretaker_uid) return;
+    if (!caretaker_uid || !db) return;
 
     const q = query(
       collection(db, 'alerts'),
@@ -40,10 +45,12 @@ export function useAlerts(caretaker_uid: string) {
 
   // Mark a single alert read in Firestore (backend handles Neon via PATCH /:id/read)
   const markRead = async (alertId: string) => {
+    if (!db) return;
     await updateDoc(doc(db, 'alerts', alertId), { is_read: true });
   };
 
   const markAllRead = async () => {
+    if (!db) return;
     const unread = alerts.filter(a => !a.is_read);
     await Promise.all(unread.map(a => updateDoc(doc(db, 'alerts', a.id), { is_read: true })));
   };

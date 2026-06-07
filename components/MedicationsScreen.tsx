@@ -63,18 +63,18 @@ export default function MedicationsScreen({
       showsVerticalScrollIndicator={false}
     >
       <View style={s.statsRow}>
-        <View style={[s.statCard, { backgroundColor: theme.greenLight }]}>
+        <View style={s.statCard}>
           <Text style={[s.statNum, { color: theme.green }]}>{pending}</Text>
-          <Text style={[s.statLabel, { color: theme.green }]}>Pending</Text>
+          <Text style={[s.statLabel, { color: theme.textMuted }]}>Pending</Text>
         </View>
-        <View style={[s.statCard, { backgroundColor: '#f5f5f5' }]}>
+        <View style={s.statCard}>
           <Text style={[s.statNum, { color: theme.textSecondary }]}>{taken}</Text>
           <Text style={[s.statLabel, { color: theme.textMuted }]}>Taken</Text>
         </View>
         {missed > 0 && (
-          <View style={[s.statCard, { backgroundColor: theme.dangerBg }]}>
+          <View style={s.statCard}>
             <Text style={[s.statNum, { color: theme.danger }]}>{missed}</Text>
-            <Text style={[s.statLabel, { color: theme.danger }]}>Missed</Text>
+            <Text style={[s.statLabel, { color: theme.textMuted }]}>Missed</Text>
           </View>
         )}
       </View>
@@ -194,7 +194,19 @@ const s = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40, gap: 14 },
 
   statsRow: { flexDirection: 'row', gap: 10 },
-  statCard: { flex: 1, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  statCard: { 
+    flex: 1, 
+    backgroundColor: '#fff', 
+    borderRadius: 14, 
+    paddingVertical: 14, 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#eef2ee',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
   statNum:   { fontSize: TEXT.xxl, fontWeight: '900' },
   statLabel: { fontSize: TEXT.sm, fontWeight: '600', marginTop: 2 },
 

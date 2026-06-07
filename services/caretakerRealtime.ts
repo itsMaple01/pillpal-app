@@ -1,5 +1,10 @@
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+
+// Check if db is initialized
+if (!db) {
+  console.error('Firebase db not initialized in caretakerRealtime service');
+}
 import { subscribePatientMedications } from '@/services/medicationRealtime';
 import type { PatientMedication } from '@/types/medication';
 
@@ -25,6 +30,7 @@ export function subscribeCaretakerOverview(
   const unique = [...new Set(patientUids.filter(Boolean))];
 
   for (const patientUid of unique) {
+    if (!db) continue;
     unsubs.push(
       onSnapshot(
         doc(db, 'patient_activity', patientUid),

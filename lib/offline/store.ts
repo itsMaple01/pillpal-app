@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PatientMedication } from '@/types/medication';
+import { isMedicationMissed } from '@/lib/medicationUtils';
 
 const PREFIX = 'pillpal:offline:';
+const LAST_DATE_KEY = 'gabayra:last_medication_date';
 
 export interface PatientSummary {
   id: string;
@@ -31,7 +33,20 @@ export async function getCachedMedications(patientUid: string): Promise<PatientM
   const raw = await AsyncStorage.getItem(medsKey(patientUid));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as PatientMedication[];
+    const meds = JSON.parse(raw) as PatientMedication[];
+    // Check if date has changed and reset taken status
+    const today = new Date().toDateString();
+    const lastDate = await AsyncStorage.getItem(LAST_DATE_KEY);
+    if (lastDate !== today) {
+      await AsyncStorage.setItem(LAST_DATE_KEY, today);
+      // Reset taken status for all medications
+      return meds.map(med => ({
+        ...med,
+        taken: false,
+        missed: isMedicationMissed(med.time, false),
+      }));
+    }
+    return meds;
   } catch {
     return null;
   }

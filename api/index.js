@@ -30,7 +30,13 @@ app.use('/api/intelligence', require('./routes/intelligence'));
 app.use('/api/ai',           require('./routes/aiPredict'));  // ← moved here
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+  
+  // Initialize ML models on startup
+  const { initializeModels } = require('./lib/ml/predictiveAnalytics');
+  await initializeModels();
+});
 
 const checkMissedDoses = require('./missedDoseChecker');
 setInterval(checkMissedDoses, 5 * 60 * 1000);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, ActivityIndicator, Text } from 'react-native';
+import { View, ActivityIndicator, Text, Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -79,24 +79,46 @@ export default function App() {
   const [loginTab, setLoginTab] = useState<LoginTab>('login');
 
   useEffect(() => {
-    setupNotifications().catch(() => {});
+    try {
+      setupNotifications().catch((error) => {
+        console.error('Error setting up notifications:', error);
+      });
+    } catch (error) {
+      console.error('Error in notification setup effect:', error);
+    }
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUid(user.uid);
-        setEmail(user.email);
-        try {
-          await routeAuthenticatedUser(user.uid, user.email, setRole, setScreen);
-        } catch {
-          setScreen('roleSelect');
-        }
-      } else {
+    try {
+      if (!auth) {
+        console.warn('Firebase auth not initialized, showing welcome screen');
         setScreen('welcome');
+        return;
       }
-    });
-    return unsubscribe;
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        try {
+          if (user) {
+            setUid(user.uid);
+            setEmail(user.email);
+            try {
+              await routeAuthenticatedUser(user.uid, user.email, setRole, setScreen);
+            } catch (error) {
+              console.error('Error routing authenticated user:', error);
+              setScreen('roleSelect');
+            }
+          } else {
+            setScreen('welcome');
+          }
+        } catch (error) {
+          console.error('Error in auth state change handler:', error);
+          setScreen('welcome');
+        }
+      });
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error setting up auth state listener:', error);
+      setScreen('welcome');
+    }
   }, []);
 
   const handleAuthSuccess = async (
@@ -156,7 +178,9 @@ export default function App() {
     if (uid) {
       await AsyncStorage.removeItem(`role_${uid}`);
     }
-    await signOut(auth);
+    if (auth) {
+      await signOut(auth);
+    }
     setRole(null);
     setUid(null);
     setEmail(null);

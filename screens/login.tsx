@@ -10,6 +10,11 @@ import {
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
+
+// Check if auth is initialized
+if (!auth) {
+  console.error('Firebase auth not initialized in login screen');
+}
 import AppIcon from '@/components/AppIcon';
 import AppLogo from '@/components/AppLogo';
 import WelcomeBackground from '@/components/WelcomeBackground';
@@ -81,6 +86,9 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
     }
     setLoading(true);
     try {
+      if (!auth) {
+        throw new Error('Firebase auth not initialized');
+      }
       if (tab === 'signup') {
         const result = await createUserWithEmailAndPassword(auth, email, password);
         onAuthSuccess(result.user.uid, result.user.email ?? '', true, {
@@ -120,6 +128,9 @@ export default function LoginScreen({ initialTab = 'login', onBack, onAuthSucces
       return;
     }
     try {
+      if (!auth) {
+        throw new Error('Firebase auth not initialized');
+      }
       await sendPasswordResetEmail(auth, trimmed);
       Alert.alert(
         'Check your email',

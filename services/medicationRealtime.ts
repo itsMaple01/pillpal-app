@@ -1,47 +1,48 @@
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { getMedications } from '@/api/index';
 import { db } from '@/lib/firebase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Check if db is initialized
+if (!db) {
+  console.error('Firebase db not initialized in medicationRealtime service');
+}
 import { cacheMedications, getCachedMedications } from '@/lib/offline/store';
 import type { PatientMedication } from '@/types/medication';
-import { parseMedicationTime } from '@/utils/medicationTimeBucket';
+import { isMedicationMissed } from '@/lib/medicationUtils';
 
-/** Check if a medication time has passed (considered missed if 30+ minutes past). */
-function isMedicationMissed(timeStr: string, taken: boolean): boolean {
-  if (taken) return false;
-  const parsed = parseMedicationTime(timeStr);
-  if (!parsed) return false;
-  
-  const now = new Date();
-  const medTime = new Date();
-  medTime.setHours(parsed.hour, parsed.minute, 0, 0);
-  
-  // If medication time is tomorrow, not missed yet
-  if (medTime > now) {
-    medTime.setDate(medTime.getDate() - 1);
+const LAST_DATE_KEY = 'gabayra:last_medication_date';
+
+/** Check if the date has changed since last medication check */
+async function hasDateChanged(): Promise<boolean> {
+  const today = new Date().toDateString();
+  const lastDate = await AsyncStorage.getItem(LAST_DATE_KEY);
+  if (lastDate !== today) {
+    await AsyncStorage.setItem(LAST_DATE_KEY, today);
+    return true;
   }
-  
-  // Check if 30+ minutes have passed since medication time
-  const diffMs = now.getTime() - medTime.getTime();
-  const diffMins = diffMs / (1000 * 60);
-  return diffMins >= 30;
+  return false;
 }
 
 /** Map DB rows to client medication objects (shared by realtime hook and schedule loader). */
-export function mapMedicationRows(rows: unknown[]): PatientMedication[] {
+export async function mapMedicationRows(rows: unknown[]): Promise<PatientMedication[]> {
+  const dateChanged = await hasDateChanged();
   return rows.map((row: any) => {
     const time = row.time ?? row.program ?? '';
     const taken = row.taken ?? false;
+    // Reset taken status if date has changed
+    const resetTaken = dateChanged ? false : taken;
     return {
       id: String(row.id),
       name: row.name ?? '',
       dosage: row.dosage ?? 'As prescribed',
       frequency: row.frequency ?? '',
       time,
-      taken,
+      taken: resetTaken,
       firestoreId: row.firestore_id ?? undefined,
       suspended: row.suspended ?? false,
       notify_enabled: row.notify_enabled !== false,
-      missed: isMedicationMissed(time, taken),
+      missed: isMedicationMissed(time, resetTaken),
     };
   });
 }
@@ -62,7 +63,7 @@ export function subscribePatientMedications(
     try {
       const res = await getMedications(patientUid);
       const rows: unknown[] = Array.isArray(res.data) ? res.data : ((res.data as any)?.data ?? []);
-      const mapped = mapMedicationRows(rows);
+      const mapped = await mapMedicationRows(rows);
       await cacheMedications(patientUid, mapped);
       onUpdate(mapped);
     } catch {
@@ -73,7 +74,7 @@ export function subscribePatientMedications(
 
   pull();
 
-  if (!firestoreRealtimeEnabled) {
+  if (!firestoreRealtimeEnabled || !db) {
     return () => {
       if (debounce) clearTimeout(debounce);
     };

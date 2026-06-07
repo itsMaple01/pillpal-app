@@ -14,9 +14,21 @@ async function recomputeProfile(firebase_uid) {
     [firebase_uid],
   );
 
+  // Query dose_logs directly for missed/late dose tracking
+  const doseLogs = await pool.query(
+    `SELECT status, scheduled_at, taken_at
+     FROM dose_logs
+     WHERE patient_uid = $1
+     ORDER BY scheduled_at DESC
+     LIMIT 120`,
+    [firebase_uid],
+  );
+
   const delays = [];
   let snoozeCount = 0;
   let confirmCount = 0;
+  let missedCount = 0;
+  let lateCount = 0;
 
   for (const row of events.rows) {
     if (row.event_type === 'snooze') snoozeCount += 1;
@@ -26,6 +38,17 @@ async function recomputeProfile(firebase_uid) {
         (new Date(row.responded_at).getTime() - new Date(row.scheduled_at).getTime()) / 60000,
       );
       if (delayMin >= 0 && delayMin <= 120) delays.push(delayMin);
+    }
+  }
+
+  // Count missed and late doses from dose_logs
+  for (const row of doseLogs.rows) {
+    if (row.status === 'missed') missedCount += 1;
+    if (row.status === 'taken' && row.taken_at && row.scheduled_at) {
+      const delayMin = Math.round(
+        (new Date(row.taken_at).getTime() - new Date(row.scheduled_at).getTime()) / 60000,
+      );
+      if (delayMin > 30) lateCount += 1; // Consider late if taken more than 30 minutes after scheduled
     }
   }
 
@@ -54,7 +77,7 @@ async function recomputeProfile(firebase_uid) {
     [firebase_uid, avgDelay, preferredLead, clusterLabel],
   );
 
-  return { avgDelay, preferredLead, clusterLabel };
+  return { avgDelay, preferredLead, clusterLabel, missedCount, lateCount };
 }
 
 async function logEvent(body) {

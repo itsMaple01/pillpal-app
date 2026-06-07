@@ -19,8 +19,11 @@ async function checkMissedDoses() {
       JOIN caretaker_patients cp ON dl.patient_uid = cp.patient_uid
       WHERE dl.status = 'pending'
         AND dl.scheduled_at < NOW() - INTERVAL '30 minutes'
+        AND dl.scheduled_at::date = CURRENT_DATE
         AND dl.alert_sent = FALSE
     `);
+
+    console.log(`🔍 Checking missed doses: found ${result.rows.length} pending doses`);
 
     for (const dose of result.rows) {
       await axios.post('http://localhost:3001/api/alerts', {
@@ -36,11 +39,13 @@ async function checkMissedDoses() {
         `UPDATE dose_logs SET alert_sent = TRUE WHERE id = $1`,
         [dose.dose_id]
       );
+
+      console.log(`📢 Alert sent for ${dose.patient_name} - ${dose.medication_name}`);
     }
 
-    console.log(`Checked missed doses: ${result.rows.length} alerts sent`);
+    console.log(`✅ Checked missed doses: ${result.rows.length} alerts sent`);
   } catch (err) {
-    console.error('Missed dose checker error:', err.message);
+    console.error('❌ Missed dose checker error:', err.message);
   }
 }
 
