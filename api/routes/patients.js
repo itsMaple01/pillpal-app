@@ -39,4 +39,43 @@ router.post('/link', async (req, res) => {
   }
 });
 
+// DELETE remove patient from caretaker (unlink, not delete user account)
+router.delete('/unlink', async (req, res) => {
+  const { caretaker_uid, patient_uid } = req.body;
+  if (!caretaker_uid || !patient_uid) {
+    return res.status(400).json({ error: 'caretaker_uid and patient_uid are required' });
+  }
+  
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Delete from caretaker_patients
+    await client.query(
+      'DELETE FROM caretaker_patients WHERE caretaker_uid = $1 AND patient_uid = $2',
+      [caretaker_uid, patient_uid]
+    );
+    
+    // Clean up related alerts
+    await client.query(
+      'DELETE FROM alerts WHERE caretaker_uid = $1 AND patient_uid = $2',
+      [caretaker_uid, patient_uid]
+    );
+    
+    // Clean up related intelligence_events
+    await client.query(
+      'DELETE FROM intelligence_events WHERE firebase_uid = $1',
+      [patient_uid]
+    );
+    
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

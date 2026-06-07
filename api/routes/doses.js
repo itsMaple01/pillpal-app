@@ -117,6 +117,7 @@ router.post('/check-missed', async (req, res) => {
       SET status = 'missed'
       WHERE status = 'pending'
         AND scheduled_at < NOW() - INTERVAL '30 minutes'
+        AND scheduled_at::date = CURRENT_DATE
       RETURNING *
     `);
 

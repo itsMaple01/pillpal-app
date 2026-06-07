@@ -12,8 +12,8 @@ const firebaseConfig = {
   appId: "1:744880894649:web:0d7e67e8c663194cb62168"
 };
 
-let app: ReturnType<typeof initializeApp>;
-let auth: ReturnType<typeof getAuth>;
+let app: ReturnType<typeof initializeApp> | null = null;
+let auth: ReturnType<typeof getAuth> | null = null;
 
 try {
   app = initializeApp(firebaseConfig);
@@ -21,18 +21,24 @@ try {
   if (Platform.OS === 'web') {
     auth = getAuth(app);
   } else {
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    // @ts-ignore
-    const { getReactNativePersistence } = require('firebase/auth');
-    auth = initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage)
-    });
+    try {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      // @ts-ignore
+      const { getReactNativePersistence } = require('firebase/auth');
+      auth = initializeAuth(app, {
+        persistence: getReactNativePersistence(AsyncStorage)
+      });
+    } catch (persistenceError) {
+      console.warn('Firebase Auth persistence failed, using default auth:', persistenceError);
+      // Fallback to auth without persistence
+      auth = getAuth(app);
+    }
   }
 } catch (error) {
   console.error('Firebase initialization error:', error);
-  throw error;
+  // Don't throw - let the app continue with null auth
 }
 
-export const db = getFirestore(app);
+export const db = app ? getFirestore(app) : null;
 export { auth };
 export default app;

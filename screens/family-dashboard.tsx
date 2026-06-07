@@ -108,7 +108,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           try {
             const m = await getMedications(p.firebase_uid);
             const rows = Array.isArray(m.data) ? m.data : [];
-            medMap[p.firebase_uid] = mapMedicationRows(rows);
+            medMap[p.firebase_uid] = await mapMedicationRows(rows);
           } catch {
             medMap[p.firebase_uid] = [];
           }

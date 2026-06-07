@@ -11,6 +11,7 @@ import {
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
   sendPatientReminder, saveExpoPushToken,
 } from '@/api/index';
+import { getApiBaseUrl } from '@/lib/apiConfig';
 import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
@@ -160,7 +161,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         try {
           const mres = await getMedications(p.firebase_uid);
           const rows = Array.isArray(mres.data) ? mres.data : [];
-          next[p.firebase_uid] = mapMedicationRows(rows);
+          next[p.firebase_uid] = await mapMedicationRows(rows);
         } catch {
           next[p.firebase_uid] = [];
         }
@@ -559,20 +560,19 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
         </View>
 
-        <View style={styles.searchLinkRow}>
-          <PatientSearchBar value={search} onChangeText={setSearch} style={{ flex: 1 }} />
-        </View>
-
-        <View style={styles.filterWrap}>
-          {FILTERS.map(f => (
-            <TouchableOpacity
-              key={f}
-              style={[styles.filterTab, activeFilter === f && styles.filterTabActive]}
-              onPress={() => setActiveFilter(f)}
-            >
-              <Text style={[styles.filterTabText, activeFilter === f && styles.filterTabTextActive]}>{f}</Text>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.searchFilterRow}>
+          <PatientSearchBar value={search} onChangeText={setSearch} style={{ flex: 1, marginRight: 8 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+            {FILTERS.map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.filterTabCompact, activeFilter === f && styles.filterTabActive]}
+                onPress={() => setActiveFilter(f)}
+              >
+                <Text style={[styles.filterTabText, activeFilter === f && styles.filterTabTextActive]}>{f}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
 
         {linkRequests.length > 0 && (
@@ -928,6 +928,64 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       <MenuRow icon="people-outline" label="Linked patients" sub={`${patients.length} patient${patients.length !== 1 ? 's' : ''}`} showChevron={false} />
       <MenuRow icon="warning-outline" iconColor="#c62828" iconBg="#fce4ec" label="Needs attention" sub={`${stats.attention} patient${stats.attention !== 1 ? 's' : ''}`} showChevron={false} />
       <MenuRow icon="checkmark-circle-outline" label="Active patients" sub={`${stats.active} patient${stats.active !== 1 ? 's' : ''}`} showChevron={false} />
+
+      <Text style={styles.manageSection}>Linked Patients</Text>
+      {patients.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>👥</Text>
+          <Text style={styles.emptyText}>No patients linked yet</Text>
+        </View>
+      ) : (
+        patients.map(p => (
+          <View key={p.firebase_uid} style={styles.patientManageCard}>
+            <View style={styles.patientManageInfo}>
+              <View style={styles.patientManageAvatar}>
+                <Text style={styles.patientManageAvatarText}>
+                  {(p.full_name || p.email || 'P').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.patientManageName}>{p.full_name || p.email}</Text>
+                <Text style={styles.patientManageSub}>
+                  {p.missed_doses || 0} missed doses · {Math.round(p.compliance || 0)}% compliance
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.patientDeleteBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Remove Patient',
+                  `Are you sure you want to remove ${p.full_name || p.email} from your care?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          const API_URL = getApiBaseUrl();
+                          await fetch(`${API_URL}/patients/unlink`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ caretaker_uid: uid, patient_uid: p.firebase_uid }),
+                          });
+                          await fetchPatients(true);
+                          showAlert('Success', 'Patient removed successfully');
+                        } catch (err) {
+                          showAlert('Error', 'Could not remove patient');
+                        }
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <AppIcon name="trash-outline" size={18} color="#c62828" />
+            </TouchableOpacity>
+          </View>
+        ))
+      )}
       <MenuRow
         icon="medical-outline"
         label="Medications"
@@ -1507,13 +1565,6 @@ const styles = StyleSheet.create({
   searchIcon:  { fontSize: 14 },
   searchInput: { flex: 1, fontSize: 14, color: '#222' },
 
-  filterWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
   filterTab: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1538,6 +1589,15 @@ const styles = StyleSheet.create({
   patientName: { fontSize: 14, fontWeight: '700', color: '#222' },
   patientSub:  { fontSize: 11, color: '#888', marginTop: 1 },
   searchLinkRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
+  searchFilterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  filterScroll: { flex: 1 },
+  filterTabCompact: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    marginRight: 6,
+  },
   linkBtnCompact: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: GREEN_DARK, borderRadius: 10, paddingHorizontal: 14,
@@ -1612,6 +1672,7 @@ const styles = StyleSheet.create({
     width: 78,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 12,
   },
   scheduleTimePillText: { fontSize: 11, fontWeight: '800', color: '#333', textAlign: 'center' },
   scheduleMedLineBold: { fontSize: 14, fontWeight: '800', color: '#222' },
@@ -1627,7 +1688,7 @@ const styles = StyleSheet.create({
   scheduleTimeSlots:     { flexDirection: 'row', padding: 12, gap: 8 },
   scheduleSlot:          { flex: 1, backgroundColor: '#f8f8f8', borderRadius: 10, padding: 10, alignItems: 'flex-start' },
   scheduleSlotTime:      { fontSize: 14, fontWeight: '700', color: '#444', marginBottom: 6 },
-  scheduleSlotEmpty:     { fontSize: 13, color: '#bbb' },
+  scheduleSlotEmpty:     { fontSize: 13, color: '#999', textAlign: 'center', paddingVertical: 24 },
   scheduleMedLine:       { fontSize: 14, color: '#333', alignSelf: 'stretch', textAlign: 'left', marginTop: 4, lineHeight: 20 },
   scheduleUnscheduled:     { paddingHorizontal: 12, paddingBottom: 12, gap: 4 },
 
@@ -1657,7 +1718,7 @@ const styles = StyleSheet.create({
   alertMessage:      { fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 },
   alertActionBtn:    { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   alertActionText:   { fontSize: 12, fontWeight: '700' },
-  alertInfoCard:     { backgroundColor: '#e3f2fd', borderRadius: 12, padding: 16, borderLeftWidth: 4, borderLeftColor: '#1976d2' },
+  alertInfoCard:     { backgroundColor: '#fff', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
   alertInfoTitle: { fontSize: 14, fontWeight: '800', color: '#1565c0' },
   alertInfoRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   alertInfoText:  { fontSize: 13, color: '#1565c0', flex: 1 },
@@ -1686,6 +1747,40 @@ const styles = StyleSheet.create({
   editModalInput:    { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#222', marginBottom: 12 },
   editModalCancel:   { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   editModalCancelText: { fontWeight: '700', color: '#666' },
+
+  // Patient management cards
+  patientManageCard: { 
+    backgroundColor: '#fff', 
+    borderRadius: 12, 
+    padding: 14, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 12,
+    shadowColor: '#000', 
+    shadowOpacity: 0.04, 
+    shadowRadius: 4, 
+    elevation: 1,
+  },
+  patientManageInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  patientManageAvatar: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: GREEN_LIGHT, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  patientManageAvatarText: { fontSize: 16, fontWeight: '800', color: GREEN },
+  patientManageName: { fontSize: 15, fontWeight: '700', color: '#222' },
+  patientManageSub: { fontSize: 12, color: '#888', marginTop: 2 },
+  patientDeleteBtn: { 
+    width: 36, 
+    height: 36, 
+    borderRadius: 10, 
+    backgroundColor: '#fce4ec', 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
   editModalSave:     { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   editModalSaveText: { fontWeight: '800', color: '#fff' },
 

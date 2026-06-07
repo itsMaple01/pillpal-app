@@ -37,6 +37,7 @@ export default function MedicationInventoryModal({
   const [newMedQty, setNewMedQty] = useState('30');
   const [editingQtyId, setEditingQtyId] = useState<string | null>(null);
   const [editingQtyValue, setEditingQtyValue] = useState('');
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -87,12 +88,88 @@ export default function MedicationInventoryModal({
 
     const updatedItems = [...items, newItem];
     setItems(updatedItems);
-    
+
     // Save to AsyncStorage
     const { saveInventory } = await import('@/lib/medicationInventory');
     await saveInventory(uid, updatedItems);
 
     // Reset form
+    setNewMedName('');
+    setNewMedDosage('');
+    setNewMedQty('30');
+    setShowAddMed(false);
+  };
+
+  const deleteItem = async (id: string) => {
+    if (Platform.OS === 'web') {
+      if (!window.confirm('Are you sure you want to delete this medication from inventory?')) {
+        return;
+      }
+    } else {
+      Alert.alert(
+        'Delete Medication',
+        'Are you sure you want to delete this medication from inventory?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              const updatedItems = items.filter(item => item.medicationId !== id);
+              setItems(updatedItems);
+              const { saveInventory } = await import('@/lib/medicationInventory');
+              await saveInventory(uid, updatedItems);
+            },
+          },
+        ],
+      );
+      return;
+    }
+    const updatedItems = items.filter(item => item.medicationId !== id);
+    setItems(updatedItems);
+    const { saveInventory } = await import('@/lib/medicationInventory');
+    await saveInventory(uid, updatedItems);
+  };
+
+  const editItem = (item: InventoryItem) => {
+    setEditingItem(item);
+    setNewMedName(item.name);
+    setNewMedDosage(item.dosage);
+    setNewMedUnit(item.unit);
+    setNewMedQty(item.quantity.toString());
+    setShowAddMed(true);
+  };
+
+  const updateItem = async () => {
+    if (!editingItem || !newMedName.trim()) {
+      if (Platform.OS === 'web') {
+        window.alert('Please enter a medication name.');
+      } else {
+        Alert.alert('Required', 'Please enter a medication name.');
+      }
+      return;
+    }
+
+    const updatedItems = items.map(item =>
+      item.medicationId === editingItem.medicationId
+        ? {
+            ...item,
+            name: newMedName.trim(),
+            dosage: newMedDosage.trim() || 'As prescribed',
+            quantity: parseInt(newMedQty, 10) || item.quantity,
+            unit: newMedUnit,
+          }
+        : item
+    );
+
+    setItems(updatedItems);
+
+    // Save to AsyncStorage
+    const { saveInventory } = await import('@/lib/medicationInventory');
+    await saveInventory(uid, updatedItems);
+
+    // Reset form
+    setEditingItem(null);
     setNewMedName('');
     setNewMedDosage('');
     setNewMedQty('30');
@@ -205,6 +282,14 @@ export default function MedicationInventoryModal({
                             </TouchableOpacity>
                           </>
                         )}
+                        <View style={s.actionButtons}>
+                          <TouchableOpacity style={s.editBtn} onPress={() => editItem(item)}>
+                            <AppIcon name="create-outline" size={16} color={theme.green} />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={s.deleteBtn} onPress={() => deleteItem(item.medicationId)}>
+                            <AppIcon name="trash-outline" size={16} color="#dc3545" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
                   );
@@ -212,9 +297,17 @@ export default function MedicationInventoryModal({
               )}
 
               {/* Add custom medication button */}
-              <TouchableOpacity style={s.addCustomBtn} onPress={() => setShowAddMed(!showAddMed)}>
+              <TouchableOpacity style={s.addCustomBtn} onPress={() => {
+                if (showAddMed && editingItem) {
+                  setEditingItem(null);
+                  setNewMedName('');
+                  setNewMedDosage('');
+                  setNewMedQty('30');
+                }
+                setShowAddMed(!showAddMed);
+              }}>
                 <AppIcon name="add-circle-outline" size={20} color={theme.green} />
-                <Text style={s.addCustomText}>Add medication not on schedule</Text>
+                <Text style={s.addCustomText}>{editingItem ? 'Edit medication' : 'Add medication not on schedule'}</Text>
               </TouchableOpacity>
 
               {showAddMed && (
@@ -262,8 +355,8 @@ export default function MedicationInventoryModal({
                       />
                     </View>
                   </View>
-                  <TouchableOpacity style={s.addMedSubmitBtn} onPress={addCustomMedication}>
-                    <Text style={s.addMedSubmitText}>Add to Inventory</Text>
+                  <TouchableOpacity style={s.addMedSubmitBtn} onPress={editingItem ? updateItem : addCustomMedication}>
+                    <Text style={s.addMedSubmitText}>{editingItem ? 'Update Medication' : 'Add to Inventory'}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -427,4 +520,25 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   addMedSubmitText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  actionButtons: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  editBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#e8f5e9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.green,
+  },
+  deleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#ffebee',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#dc3545',
+  },
 });

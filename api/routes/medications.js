@@ -17,17 +17,40 @@ async function bumpPatientActivity(patientUid, type = 'medication_update') {
 // GET all medications for a patient (resets "taken" when last taken was before today)
 router.get('/:patient_uid', async (req, res) => {
   try {
+    // Reset taken status for medications where last_taken_at is before today
     await pool.query(
       `UPDATE medications SET taken = FALSE
        WHERE patient_uid = $1 AND taken = TRUE
          AND (last_taken_at IS NULL OR last_taken_at < CURRENT_DATE)`,
       [req.params.patient_uid],
     );
-    const result = await pool.query(
-      'SELECT * FROM medications WHERE patient_uid = $1 ORDER BY created_at DESC',
-      [req.params.patient_uid],
-    );
-    res.json(result.rows);
+    
+    // Get medications with today's dose status from dose_logs
+    const result = await pool.query(`
+      SELECT 
+        m.*,
+        COALESCE(
+          (SELECT dl.status FROM dose_logs dl
+           JOIN schedules s ON s.id = dl.schedule_id
+           WHERE s.medication_id = m.id
+             AND dl.patient_uid = m.patient_uid
+             AND dl.scheduled_at::date = CURRENT_DATE
+             AND dl.status = 'taken'
+           LIMIT 1),
+          'pending'
+        ) as today_status
+      FROM medications m
+      WHERE m.patient_uid = $1
+      ORDER BY m.created_at DESC
+    `, [req.params.patient_uid]);
+    
+    // Override taken field based on today's dose status
+    const medications = result.rows.map(med => ({
+      ...med,
+      taken: med.today_status === 'taken'
+    }));
+    
+    res.json(medications);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
