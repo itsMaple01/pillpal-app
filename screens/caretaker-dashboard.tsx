@@ -199,19 +199,20 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     getUser(uid)
       .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
       .catch(() => {});
-   registerForPushNotificationsAsync().then(async token => {
-  console.log('TOKEN RESULT:', token);
-  if (token) {
-    try {
-      await saveExpoPushToken(uid, token);
-      console.log('TOKEN SAVED SUCCESSFULLY');
-    } catch (err) {
-      console.error('TOKEN SAVE FAILED:', err);
-    }
-  } else {
-    console.log('NO TOKEN RETURNED');
-  }
-});
+    import('@/lib/pushNotifications').then(m => m.setupNotifications().catch(() => {}));
+    registerForPushNotificationsAsync().then(async token => {
+      console.log('CARETAKER TOKEN RESULT:', token);
+      if (token) {
+        try {
+          await saveExpoPushToken(uid, token);
+          console.log('CARETAKER TOKEN SAVED SUCCESSFULLY');
+        } catch (err) {
+          console.error('CARETAKER TOKEN SAVE FAILED:', err);
+        }
+      } else {
+        console.log('CARETAKER NO TOKEN RETURNED');
+      }
+    });
     isTutorialDone('caregiver', uid).then(done => {
       if (!done) {
         setTutorialIdx(0);
@@ -569,9 +570,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
         </View>
 
-        <View style={styles.searchFilterRow}>
-          <PatientSearchBar value={search} onChangeText={setSearch} style={{ flex: 1, marginRight: 8 }} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+        <View style={styles.searchFilterContainer}>
+          <PatientSearchBar value={search} onChangeText={setSearch} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow}>
             {FILTERS.map(f => (
               <TouchableOpacity
                 key={f}
@@ -904,7 +905,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
 
         <View style={styles.alertInfoCard}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <AppIcon name="information-circle" size={20} color="#1565c0" />
+            <AppIcon name="information-circle-outline" size={20} color={GREEN} />
             <Text style={styles.alertInfoTitle}>Alert thresholds</Text>
           </View>
           <View style={styles.alertInfoRow}>
@@ -1342,7 +1343,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               <AppIcon name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
-          <StatisticsScreen
+          <View style={{ flex: 1 }}>
+            <StatisticsScreen
             stats={{
               total: Object.values(scheduleByPatient).flat().length,
               taken: Object.values(scheduleByPatient).flat().filter(m => m.taken && !m.suspended).length,
@@ -1356,6 +1358,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               email: p.email || '',
             }))}
           />
+          </View>
         </View>
       </View>
     </Modal>
@@ -1597,8 +1600,17 @@ const styles = StyleSheet.create({
   patientName: { fontSize: 14, fontWeight: '700', color: '#222' },
   patientSub:  { fontSize: 11, color: '#888', marginTop: 1 },
   searchLinkRow: { flexDirection: 'row', alignItems: 'stretch', gap: 10 },
-  searchFilterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  filterScroll: { flex: 1 },
+  searchFilterContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 12,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  filterChipRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 8 },
   filterTabCompact: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -1726,10 +1738,19 @@ const styles = StyleSheet.create({
   alertMessage:      { fontSize: 12, color: '#666', marginTop: 2, lineHeight: 18 },
   alertActionBtn:    { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   alertActionText:   { fontSize: 12, fontWeight: '700' },
-  alertInfoCard:     { backgroundColor: '#fff', borderRadius: 12, padding: 16, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
-  alertInfoTitle: { fontSize: 14, fontWeight: '800', color: '#1565c0' },
+  alertInfoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  alertInfoTitle: { fontSize: 14, fontWeight: '800', color: '#222' },
   alertInfoRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  alertInfoText:  { fontSize: 13, color: '#1565c0', flex: 1 },
+  alertInfoText:  { fontSize: 13, color: '#666', flex: 1 },
 
   // Manage (account)
   profileHeader:     { alignItems: 'center', paddingVertical: 24 },
@@ -1802,6 +1823,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    height: '85%',
     maxHeight: '90%',
   },
   modalHeader: {

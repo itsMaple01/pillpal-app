@@ -137,6 +137,33 @@ router.patch('/:id/firestore-id', async (req, res) => {
   }
 });
 
+// PATCH update inventory stock levels
+router.patch('/:id/inventory', async (req, res) => {
+  const { current_stock, refill_threshold } = req.body;
+  if (current_stock === undefined && refill_threshold === undefined) {
+    return res.status(400).json({ error: 'current_stock or refill_threshold required' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE medications
+       SET current_stock = COALESCE($1, current_stock),
+           refill_threshold = COALESCE($2, refill_threshold),
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [
+        typeof current_stock === 'number' ? current_stock : null,
+        typeof refill_threshold === 'number' ? refill_threshold : null,
+        req.params.id,
+      ],
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Medication not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST refill — extend end_date by 30 days (or from today if none)
 router.post('/:id/refill', async (req, res) => {
   try {

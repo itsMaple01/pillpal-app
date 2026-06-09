@@ -794,12 +794,16 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   useEffect(() => {
     setupNotifications().catch(() => {});
     registerForPushNotificationsAsync().then(async token => {
-      console.log('PATIENT TOKEN RESULT:', token);
+      Alert.alert(
+        'Token Debug',
+        `Token: ${token || 'NULL'}\nexecEnv: ${Constants.executionEnvironment}\nappOwnership: ${Constants.appOwnership}`,
+      );
       if (token) {
         try {
           await saveExpoPushToken(uid, token);
-          console.log('PATIENT TOKEN SAVED SUCCESSFULLY');
+          Alert.alert('Success', 'Token saved!');
         } catch (err) {
+          Alert.alert('Save Failed', String(err));
           console.error('PATIENT TOKEN SAVE FAILED:', err);
         }
       } else {
@@ -1448,7 +1452,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
                 <AppIcon name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-            <StatisticsScreen
+            <View style={{ flex: 1 }}>
+              <StatisticsScreen
               stats={{
                 total: medications.length,
                 taken: medications.filter(m => m.taken && !m.suspended).length,
@@ -1462,6 +1467,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
                 email: req.caretaker_email,
               }))}
             />
+            </View>
           </View>
         </View>
       </Modal>
@@ -1667,6 +1673,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    height: '85%',
     maxHeight: '90%',
   },
   modalHeader: {

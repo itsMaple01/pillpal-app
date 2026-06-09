@@ -34,40 +34,37 @@ function subtractMinutes(hour: number, minute: number, delta: number) {
   return { hour: Math.floor(total / 60) % 24, minute: total % 60 };
 }
 
-/** Call once at app start (standalone / dev build). */
+async function ensureAndroidChannel(Notifications: Awaited<ReturnType<typeof getNotifications>>) {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync('medication-reminders', {
+    name: 'Medication reminders',
+    importance: Notifications.AndroidImportance.MAX,
+    sound: 'default',
+    vibrationPattern: [0, 250, 250, 250],
+    enableVibrate: true,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    bypassDnd: false,
+  });
+}
+
+/** Call once at app start. */
 export async function setupNotifications(): Promise<void> {
-  if (Platform.OS === 'web' || isExpoGo()) return;
+  if (Platform.OS === 'web') return;
   try {
     const Notifications = await getNotifications();
     if (!handlerReady) {
-      try {
-        Notifications.setNotificationHandler({
-          handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: false,
-            shouldShowBanner: true,
-            shouldShowList: true,
-          }),
-        });
-        handlerReady = true;
-      } catch (handlerError) {
-        console.warn('Failed to set notification handler:', handlerError);
-      }
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+      });
+      handlerReady = true;
     }
-    if (Platform.OS === 'android') {
-      try {
-        await Notifications.setNotificationChannelAsync('medication-reminders', {
-          name: 'Medication reminders',
-          importance: Notifications.AndroidImportance.HIGH,
-          sound: 'default',
-          vibrationPattern: [0, 250, 250, 250],
-          enableVibrate: true,
-        });
-      } catch (channelError) {
-        console.warn('Failed to set notification channel:', channelError);
-      }
-    }
+    await ensureAndroidChannel(Notifications);
   } catch (e) {
     if (!warned) {
       console.warn('Notification setup skipped:', e);
@@ -76,11 +73,25 @@ export async function setupNotifications(): Promise<void> {
   }
 }
 
+/** Register for Expo push tokens — no Expo Go guards, always attempt token retrieval. */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
 
   try {
     const Notifications = await getNotifications();
+
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+
+    await ensureAndroidChannel(Notifications);
+
     const { status: existing } = await Notifications.getPermissionsAsync();
     let finalStatus = existing;
     if (existing !== 'granted') {
@@ -90,7 +101,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       finalStatus = status;
     }
     if (finalStatus !== 'granted') {
-      console.log('Push permission not granted:', finalStatus);
+      console.warn('[push] Permission not granted:', finalStatus);
       return null;
     }
 
@@ -98,34 +109,40 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       Constants.expoConfig?.extra?.eas?.projectId ??
       Constants.easConfig?.projectId;
 
-    console.log('Using projectId:', projectId);
-
-    const token = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId: String(projectId) } : undefined,
-    );
-
-    console.log('EXPO PUSH TOKEN:', token.data);
-    return token.data;
-  } catch (e) {
-    if (!warned) {
-      console.warn('Push registration failed:', e);
-      warned = true;
+    if (!projectId) {
+      console.error('[push] Missing EAS projectId in app config');
+      return null;
     }
+
+    console.log('[push] Requesting token with projectId:', projectId);
+    const tokenResponse = await Notifications.getExpoPushTokenAsync({
+      projectId: String(projectId),
+    });
+
+    console.log('[push] Token received:', tokenResponse.data);
+    return tokenResponse.data;
+  } catch (e) {
+    console.error('[push] Registration failed:', e);
     return null;
   }
 }
 
-/** Show immediate local notification (caregiver push while app open). */
+/** Show immediate local notification (fallback while app is open). */
 export async function presentLocalNotification(title: string, body: string) {
-  if (Platform.OS === 'web' || isExpoGo()) return;
+  if (Platform.OS === 'web') return;
   try {
     const Notifications = await getNotifications();
     await Notifications.scheduleNotificationAsync({
-      content: { title, body, sound: true },
+      content: {
+        title,
+        body,
+        sound: true,
+        priority: Notifications.AndroidNotificationPriority?.MAX ?? 'max',
+      },
       trigger: null,
     });
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.warn('[push] Local notification failed:', err);
   }
 }
 
@@ -138,11 +155,12 @@ export async function forceRescheduleMedicationLocalNotifications(
   await rescheduleMedicationLocalNotifications(meds, patientUid);
 }
 
+/** Local schedule kept as fallback; primary delivery is server-side Expo push. */
 export async function rescheduleMedicationLocalNotifications(
   meds: PatientMedication[],
   patientUid?: string,
 ) {
-  if (Platform.OS === 'web' || isExpoGo()) return;
+  if (Platform.OS === 'web') return;
   try {
     const { areAppNotificationsEnabled } = await import('@/lib/notificationPrefs');
     if (!(await areAppNotificationsEnabled())) {
@@ -173,6 +191,7 @@ export async function rescheduleMedicationLocalNotifications(
     }
 
     const Notifications = await getNotifications();
+    await ensureAndroidChannel(Notifications);
     await Notifications.cancelAllScheduledNotificationsAsync();
 
     const active = meds.filter(m => !m.suspended && m.notify_enabled !== false);
@@ -194,7 +213,7 @@ export async function rescheduleMedicationLocalNotifications(
           title: 'GabayRa',
           body: `${med.name} · ${parsed.label}`,
           sound: 'default',
-          priority: 'high',
+          priority: 'max',
           vibrate: [0, 250, 250, 250],
           data: { medicationId: med.id, type: 'med_reminder', doseTime: med.time },
         },
@@ -209,6 +228,6 @@ export async function rescheduleMedicationLocalNotifications(
     lastScheduleKey = fingerprint;
     await AsyncStorage.setItem(SCHEDULE_STORAGE_KEY, fingerprint);
   } catch (e) {
-    if (!isExpoGo()) console.warn('Local notification schedule failed:', e);
+    console.warn('[push] Local notification schedule failed:', e);
   }
 }

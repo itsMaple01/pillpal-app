@@ -19,6 +19,19 @@ async function runMigrations() {
   await run('medications.notify_enabled', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS notify_enabled BOOLEAN DEFAULT TRUE`);
   await run('medications.updated_at', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
   await run('medications.last_taken_at', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS last_taken_at DATE`);
+  await run('medications.current_stock', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS current_stock INTEGER DEFAULT 30`);
+  await run('medications.refill_threshold', `ALTER TABLE medications ADD COLUMN IF NOT EXISTS refill_threshold INTEGER DEFAULT 5`);
+
+  await run('medication_push_log', `
+    CREATE TABLE IF NOT EXISTS medication_push_log (
+      id SERIAL PRIMARY KEY,
+      medication_id INTEGER NOT NULL,
+      patient_uid VARCHAR(128) NOT NULL,
+      push_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      push_type VARCHAR(32) NOT NULL DEFAULT 'scheduled',
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (medication_id, push_date, push_type)
+    )`);
 
   await run('users.date_of_birth', `ALTER TABLE users ADD COLUMN IF NOT EXISTS date_of_birth DATE`);
 

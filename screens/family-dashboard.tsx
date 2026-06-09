@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
-  saveExpoPushToken,
+  saveExpoPushToken, unlinkPatient,
 } from '@/api/index';
 import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
@@ -142,6 +142,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     getUser(uid)
       .then(r => setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member'))
       .catch(() => setDisplayName('Family member'));
+    import('@/lib/pushNotifications').then(m => m.setupNotifications().catch(() => {}));
     registerForPushNotificationsAsync().then(async token => {
       console.log('FAMILY TOKEN RESULT:', token);
       if (token) {
@@ -453,6 +454,64 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const ManageScreen = () => (
     <ScrollView contentContainerStyle={styles.scrollPad}>
+      <Text style={styles.sectionTitle}>Linked patients</Text>
+      {people.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptySub}>No family linked yet. Use Link below to connect.</Text>
+        </View>
+      ) : (
+        <View style={styles.linkedPatientsWrap}>
+          {people.map(person => (
+            <View key={person.firebase_uid} style={styles.patientManageCard}>
+              <View style={styles.patientManageInfo}>
+                <View style={styles.patientManageAvatar}>
+                  <Text style={styles.patientManageAvatarText}>
+                    {(person.full_name ?? person.email ?? 'P').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.patientManageName}>{person.full_name ?? person.email}</Text>
+                  <Text style={styles.patientManageSub}>
+                    Age {person.age ?? '—'} · {(medsByPerson[person.firebase_uid] || []).filter(m => !m.suspended).length} meds
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.patientDeleteBtn}
+                onPress={() => {
+                  Alert.alert(
+                    'Remove Patient',
+                    `Remove ${person.full_name ?? person.email} from your linked list?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Remove',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await unlinkPatient({
+                              caretaker_uid: uid,
+                              patient_uid: person.firebase_uid,
+                            });
+                            await loadPeople();
+                            Alert.alert('Success', 'Patient removed successfully');
+                          } catch (err) {
+                            console.error('Family remove patient failed:', err);
+                            Alert.alert('Error', 'Could not remove patient');
+                          }
+                        },
+                      },
+                    ],
+                  );
+                }}
+              >
+                <AppIcon name="trash-outline" size={18} color="#c62828" />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
       <Text style={styles.sectionTitle}>Account</Text>
       <MenuRow
         icon="swap-horizontal-outline"
@@ -595,7 +654,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
                 <AppIcon name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-            <StatisticsScreen
+            <View style={{ flex: 1 }}>
+              <StatisticsScreen
               stats={{
                 total: Object.values(medsByPerson).flat().length,
                 taken: Object.values(medsByPerson).flat().filter(m => m.taken && !m.suspended).length,
@@ -609,6 +669,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
                 email: p.email || '',
               }))}
             />
+            </View>
           </View>
         </View>
       </Modal>
@@ -777,7 +838,50 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    height: '85%',
     maxHeight: '90%',
+  },
+  linkedPatientsWrap: { gap: 10, marginBottom: 8 },
+  emptyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  patientManageCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: theme.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  patientManageInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  patientManageAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: GREEN_LIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  patientManageAvatarText: { fontSize: 16, fontWeight: '800', color: GREEN },
+  patientManageName: { fontSize: 15, fontWeight: '700', color: '#222' },
+  patientManageSub: { fontSize: 12, color: '#888', marginTop: 2 },
+  patientDeleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#fce4ec',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalHeader: {
     flexDirection: 'row',

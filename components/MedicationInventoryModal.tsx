@@ -10,6 +10,7 @@ import {
   syncInventoryWithMeds,
   adjustInventoryQuantity,
   refillInventoryItem,
+  saveInventoryItem,
   type InventoryItem,
 } from '@/lib/medicationInventory';
 
@@ -58,13 +59,8 @@ export default function MedicationInventoryModal({
   };
 
   const setDirectQty = async (id: string, qty: number) => {
-    const updatedItems = items.map(item =>
-      item.medicationId === id ? { ...item, quantity: Math.max(0, qty) } : item
-    );
-    setItems(updatedItems);
-    // Save to AsyncStorage
-    const { saveInventory } = await import('@/lib/medicationInventory');
-    await saveInventory(uid, updatedItems);
+    const next = await saveInventoryItem(uid, id, { quantity: Math.max(0, qty) }, items);
+    setItems(next);
   };
 
   const addCustomMedication = async () => {
@@ -220,9 +216,11 @@ export default function MedicationInventoryModal({
                       <View style={{ flex: 1 }}>
                         <Text style={s.medName}>{item.name}</Text>
                         <Text style={s.medSub}>{item.dosage}</Text>
-                        <Text style={[s.stockLabel, low && { color: '#e65100' }]}>
-                          {low ? 'Low stock' : 'In stock'} · {item.unit}
-                        </Text>
+                        <View style={s.stockRow}>
+                          <Text style={s.stockLabel}>Current stock</Text>
+                          <Text style={[s.stockValue, low && s.stockValueLow]}>{item.quantity} {item.unit}</Text>
+                        </View>
+                        <Text style={s.thresholdText}>Refill when below {item.lowThreshold} {item.unit}</Text>
                       </View>
                       <View style={s.qtyCol}>
                         {isEditing ? (
@@ -384,8 +382,11 @@ const s = StyleSheet.create({
     borderRadius: 20,
     maxHeight: '88%',
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: theme.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
   },
   header: {
     flexDirection: 'row',
@@ -394,7 +395,7 @@ const s = StyleSheet.create({
     padding: 18,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
-    backgroundColor: theme.greenLight,
+    backgroundColor: '#fff',
   },
   kicker: { fontSize: 11, fontWeight: '800', color: theme.green, letterSpacing: 1 },
   title: { fontSize: 18, fontWeight: '800', color: theme.text, marginTop: 2 },
@@ -414,18 +415,27 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 14,
-    borderRadius: 14,
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 10,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
     borderWidth: 1,
     borderColor: theme.border,
-    marginBottom: 10,
-    backgroundColor: theme.surface,
   },
   rowLow: { borderColor: '#ffcc80', backgroundColor: '#fffaf5' },
   rowFocus: { borderColor: theme.green, borderWidth: 2 },
-  medName: { fontSize: 15, fontWeight: '800', color: theme.text },
-  medSub: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
-  stockLabel: { fontSize: 11, fontWeight: '700', color: theme.green, marginTop: 6 },
+  medName: { fontSize: 16, fontWeight: '800', color: theme.text },
+  medSub: { fontSize: 13, color: theme.textSecondary, marginTop: 2 },
+  stockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  stockLabel: { fontSize: 12, fontWeight: '700', color: theme.textSecondary },
+  stockValue: { fontSize: 14, fontWeight: '800', color: theme.green },
+  stockValueLow: { color: '#e65100' },
+  thresholdText: { fontSize: 11, color: theme.textMuted, marginTop: 4 },
   qtyCol: { alignItems: 'center', gap: 8 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepBtn: {

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PatientMedication } from '@/types/medication';
+import { updateMedicationInventory } from '@/api/index';
 
 export interface InventoryItem {
   medicationId: string;
@@ -49,19 +50,59 @@ export async function syncInventoryWithMeds(
 
   const merged: InventoryItem[] = meds.map(m => {
     const prev = byId.get(m.id);
-    if (prev) return { ...prev, name: m.name, dosage: m.dosage };
+    const quantity = m.currentStock ?? prev?.quantity ?? defaultQuantity(m.dosage);
+    const lowThreshold = m.refillThreshold ?? prev?.lowThreshold ?? 5;
+    if (prev) {
+      return { ...prev, name: m.name, dosage: m.dosage, quantity, lowThreshold };
+    }
     return {
       medicationId: m.id,
       name: m.name,
       dosage: m.dosage,
-      quantity: defaultQuantity(m.dosage),
+      quantity,
       unit: defaultUnit(m.dosage),
-      lowThreshold: 5,
+      lowThreshold,
     };
   });
 
   await saveInventory(uid, merged);
   return merged;
+}
+
+async function persistInventoryToApi(medicationId: string, quantity: number, lowThreshold: number) {
+  const id = parseInt(medicationId, 10);
+  if (Number.isNaN(id)) return;
+  try {
+    await updateMedicationInventory(id, {
+      current_stock: quantity,
+      refill_threshold: lowThreshold,
+    });
+  } catch (err) {
+    console.error('[inventory] API save failed:', err);
+  }
+}
+
+export async function saveInventoryItem(
+  uid: string,
+  medicationId: string,
+  patch: { quantity?: number; lowThreshold?: number },
+  currentItems: InventoryItem[],
+): Promise<InventoryItem[]> {
+  const next = currentItems.map(i =>
+    i.medicationId === medicationId
+      ? {
+          ...i,
+          quantity: patch.quantity ?? i.quantity,
+          lowThreshold: patch.lowThreshold ?? i.lowThreshold,
+        }
+      : i,
+  );
+  await saveInventory(uid, next);
+  const item = next.find(i => i.medicationId === medicationId);
+  if (item) {
+    await persistInventoryToApi(item.medicationId, item.quantity, item.lowThreshold);
+  }
+  return next;
 }
 
 export async function adjustInventoryQuantity(
@@ -76,6 +117,10 @@ export async function adjustInventoryQuantity(
       : i,
   );
   await saveInventory(uid, next);
+  const item = next.find(i => i.medicationId === medicationId);
+  if (item) {
+    await persistInventoryToApi(item.medicationId, item.quantity, item.lowThreshold);
+  }
   return next;
 }
 
@@ -95,5 +140,9 @@ export async function refillInventoryItem(
       : i,
   );
   await saveInventory(uid, next);
+  const item = next.find(i => i.medicationId === medicationId);
+  if (item) {
+    await persistInventoryToApi(item.medicationId, item.quantity, item.lowThreshold);
+  }
   return next;
 }

@@ -43,6 +43,8 @@ export async function mapMedicationRows(rows: unknown[]): Promise<PatientMedicat
       suspended: row.suspended ?? false,
       notify_enabled: row.notify_enabled !== false,
       missed: isMedicationMissed(time, resetTaken),
+      currentStock: row.current_stock ?? undefined,
+      refillThreshold: row.refill_threshold ?? undefined,
     };
   });
 }

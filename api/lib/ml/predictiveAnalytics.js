@@ -34,6 +34,22 @@ async function loadModels() {
   }
 }
 
+function extractOnnxLabel(output, modelName) {
+  const preferredKeys = ['output_label', 'label', 'variable', 'output_probability'];
+  for (const key of preferredKeys) {
+    const tensor = output[key];
+    if (tensor?.data?.length) {
+      return Number(tensor.data[0]);
+    }
+  }
+  const fallbackKey = Object.keys(output)[0];
+  if (fallbackKey && output[fallbackKey]?.data?.length) {
+    console.warn(`[predictMissRisk] ${modelName}: using fallback key "${fallbackKey}"`);
+    return Number(output[fallbackKey].data[0]);
+  }
+  throw new Error(`${modelName} model returned no readable output. Keys: ${Object.keys(output).join(', ')}`);
+}
+
 /**
  * Runs both ONNX models and returns risk + action prediction.
  * Falls back to rule-based stub if model fails.
@@ -73,8 +89,11 @@ async function predictMissRisk(events, profile, patientContext = {}) {
       actionSession.run({ float_input: tensor }),
     ]);
 
-    const risk_score = Number(riskOutput['output_label'].data[0]);
-    const action_code = Number(actionOutput['output_label'].data[0]);
+    console.log('Risk output keys:', Object.keys(riskOutput));
+    console.log('Action output keys:', Object.keys(actionOutput));
+
+    const risk_score = extractOnnxLabel(riskOutput, 'risk');
+    const action_code = extractOnnxLabel(actionOutput, 'action');
     const action = action_code === 0 ? 'send_now' : action_code === 1 ? 'delay' : 'snooze';
 
     console.log(`🤖 ML Prediction: risk=${risk_score}, action=${action}`);

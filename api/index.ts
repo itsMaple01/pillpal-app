@@ -62,6 +62,11 @@ export const updateMedication = (
 export const refillMedication = (id: number) =>
   api.post(`/api/medications/${id}/refill`, {});
 
+export const updateMedicationInventory = (
+  id: number,
+  body: { current_stock?: number; refill_threshold?: number },
+) => api.patch(`/api/medications/${id}/inventory`, body);
+
 export const createLinkRequest = (body: { patient_uid: string; caretaker_email: string }) =>
   api.post('/api/linking/request', body);
 

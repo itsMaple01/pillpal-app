@@ -23,33 +23,38 @@ interface Props {
 }
 
 const screenWidth = Dimensions.get('window').width;
+const CHART_MIN = 0.001;
+
+function chartValue(value: number): number {
+  return value > 0 ? value : CHART_MIN;
+}
 
 export default function StatisticsScreen({ stats, connectedAccounts, monthlyData }: Props) {
+  const hasData = stats.total > 0;
+
   const pieData = [
     {
       name: 'Taken',
-      population: stats.taken || 0,
+      population: chartValue(stats.taken || 0),
       color: theme.green,
       legendFontColor: theme.text,
       legendFontSize: 12,
     },
     {
       name: 'Missed',
-      population: stats.missed || 0,
+      population: chartValue(stats.missed || 0),
       color: theme.danger,
       legendFontColor: theme.text,
       legendFontSize: 12,
     },
     {
       name: 'Pending',
-      population: stats.pending || 0,
+      population: chartValue(stats.pending || 0),
       color: '#f5a623',
       legendFontColor: theme.text,
       legendFontSize: 12,
     },
   ];
-
-  const hasData = stats.total > 0;
 
   const chartConfig = {
     backgroundColor: '#ffffff',
@@ -68,22 +73,19 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
     },
   };
 
+  const defaultMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+  const barLabels = monthlyData?.map(d => d.month.slice(0, 3)) || defaultMonths;
+  const takenValues = monthlyData?.map(d => chartValue(d.taken)) || defaultMonths.map(() => CHART_MIN);
+  const missedValues = monthlyData?.map(d => chartValue(d.missed)) || defaultMonths.map(() => CHART_MIN);
+
   const barData = {
-    labels: monthlyData?.map(d => d.month.slice(0, 3)) || ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    datasets: [
-      {
-        data: monthlyData?.map(d => d.taken) || [12, 15, 10, 18, 14, 16],
-      },
-    ],
+    labels: barLabels,
+    datasets: [{ data: takenValues }],
   };
 
   const missedBarData = {
-    labels: monthlyData?.map(d => d.month.slice(0, 3)) || ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    datasets: [
-      {
-        data: monthlyData?.map(d => d.missed) || [2, 1, 3, 1, 2, 1],
-      },
-    ],
+    labels: barLabels,
+    datasets: [{ data: missedValues }],
   };
 
   const complianceRate = stats.total > 0
@@ -94,7 +96,6 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Medication Statistics</Text>
 
-      {/* Overview Stats */}
       <View style={styles.overviewCard}>
         <Text style={styles.cardTitle}>Overview</Text>
         <View style={styles.statsGrid}>
@@ -123,7 +124,6 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
         </View>
       </View>
 
-      {/* Pie Chart */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Distribution</Text>
         {hasData ? (
@@ -144,7 +144,6 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
         )}
       </View>
 
-      {/* Bar Chart - Taken */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Medications Taken (Monthly)</Text>
         {hasData ? (
@@ -154,6 +153,7 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
             height={220}
             chartConfig={chartConfig}
             verticalLabelRotation={30}
+            fromZero
           />
         ) : (
           <View style={styles.noDataWrap}>
@@ -162,7 +162,6 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
         )}
       </View>
 
-      {/* Bar Chart - Missed */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Missed Doses (Monthly)</Text>
         {hasData ? (
@@ -175,6 +174,7 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
               color: (opacity = 1) => `rgba(181, 74, 74, ${opacity})`,
             }}
             verticalLabelRotation={30}
+            fromZero
           />
         ) : (
           <View style={styles.noDataWrap}>
@@ -183,7 +183,6 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
         )}
       </View>
 
-      {/* Connected Accounts */}
       <View style={styles.chartCard}>
         <Text style={styles.cardTitle}>Connected Accounts</Text>
         {connectedAccounts.length === 0 ? (

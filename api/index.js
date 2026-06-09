@@ -41,3 +41,7 @@ app.listen(PORT, async () => {
 const checkMissedDoses = require('./missedDoseChecker');
 setInterval(checkMissedDoses, 5 * 60 * 1000);
 checkMissedDoses();
+
+const sendDueMedicationReminders = require('./medicationReminderPusher');
+setInterval(sendDueMedicationReminders, 60 * 1000);
+sendDueMedicationReminders();
