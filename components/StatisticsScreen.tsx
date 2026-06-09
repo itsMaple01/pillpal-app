@@ -157,7 +157,7 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
           />
         ) : (
           <View style={styles.noDataWrap}>
-            <Text style={styles.emptyText}>No data yet</Text>
+            <Text style={styles.emptyText}>No medication data yet</Text>
           </View>
         )}
       </View>
@@ -178,7 +178,7 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
           />
         ) : (
           <View style={styles.noDataWrap}>
-            <Text style={styles.emptyText}>No data yet</Text>
+            <Text style={styles.emptyText}>No medication data yet</Text>
           </View>
         )}
       </View>

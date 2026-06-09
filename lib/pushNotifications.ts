@@ -79,11 +79,6 @@ export async function setupNotifications(): Promise<void> {
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
 
-  console.log('executionEnvironment:', Constants.executionEnvironment);
-  console.log('appOwnership:', Constants.appOwnership);
-
-  await setupNotifications();
-
   try {
     const Notifications = await getNotifications();
     const { status: existing } = await Notifications.getPermissionsAsync();

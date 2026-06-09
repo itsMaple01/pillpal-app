@@ -6,9 +6,6 @@ const MODEL_DIR = path.join(__dirname, '../../../ml/ml-model');
 const HEALTH_CONDITION_MAP = {
   asthma: 0, copd: 1, diabetes: 2, heart_disease: 3, hypertension: 4, none: 5
 };
-const CLUSTER_LABEL_MAP = {
-  consistent: 0, early_responder: 1, irregular: 2, late_responder: 3
-};
 
 let riskSession = null;
 let actionSession = null;
@@ -67,10 +64,9 @@ async function predictMissRisk(events, profile, patientContext = {}) {
       alert_sent,
       profile.avg_response_delay_minutes ?? 15,
       profile.preferred_lead_minutes ?? 10,
-      CLUSTER_LABEL_MAP[profile.cluster_label] ?? 2,
     ]);
 
-    const tensor = new ort.Tensor('float32', values, [1, 14]);
+    const tensor = new ort.Tensor('float32', values, [1, 13]);
 
     const [riskOutput, actionOutput] = await Promise.all([
       riskSession.run({ float_input: tensor }),

@@ -142,11 +142,17 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     getUser(uid)
       .then(r => setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member'))
       .catch(() => setDisplayName('Family member'));
-    registerForPushNotificationsAsync().then(t => {
-      if (t) {
-        saveExpoPushToken(uid, t)
-          .then(() => console.log('FAMILY TOKEN SAVED SUCCESSFULLY'))
-          .catch(err => console.error('FAMILY TOKEN SAVE FAILED:', err));
+    registerForPushNotificationsAsync().then(async token => {
+      console.log('FAMILY TOKEN RESULT:', token);
+      if (token) {
+        try {
+          await saveExpoPushToken(uid, token);
+          console.log('FAMILY TOKEN SAVED SUCCESSFULLY');
+        } catch (err) {
+          console.error('FAMILY TOKEN SAVE FAILED:', err);
+        }
+      } else {
+        console.log('FAMILY NO TOKEN RETURNED');
       }
     });
     isTutorialDone('family', uid).then(done => {

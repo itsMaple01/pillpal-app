@@ -793,22 +793,21 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   useEffect(() => {
     setupNotifications().catch(() => {});
-    if (isExpoGo) return;
     registerForPushNotificationsAsync().then(async token => {
-  console.log('PATIENT TOKEN RESULT:', token);
-  if (token) {
-    try {
-      await saveExpoPushToken(uid, token);
-      console.log('PATIENT TOKEN SAVED SUCCESSFULLY');
-    } catch (err) {
-      console.error('PATIENT TOKEN SAVE FAILED:', err);
-    }
-  } else {
-    console.log('PATIENT NO TOKEN RETURNED');
-  }
-});
+      console.log('PATIENT TOKEN RESULT:', token);
+      if (token) {
+        try {
+          await saveExpoPushToken(uid, token);
+          console.log('PATIENT TOKEN SAVED SUCCESSFULLY');
+        } catch (err) {
+          console.error('PATIENT TOKEN SAVE FAILED:', err);
+        }
+      } else {
+        console.log('PATIENT NO TOKEN RETURNED');
+      }
+    });
     logIntelligenceEvent({ firebase_uid: uid, event_type: 'opened_app' }).catch(() => {});
-  }, [uid, isExpoGo]);
+  }, [uid]);
 
   useEffect(() => {
     if (online) flushOfflineQueue().catch(() => {});

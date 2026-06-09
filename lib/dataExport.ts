@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 
@@ -36,54 +36,87 @@ interface ExportData {
   };
 }
 
+function sanitizeFileName(exportDate: string, extension: 'csv' | 'json'): string {
+  const safeDate = exportDate.replace(/[^0-9-]/g, '') || 'export';
+  return `gabayra-export-${safeDate}.${extension}`;
+}
+
+async function writeAndShareMobileFile(
+  fileName: string,
+  content: string,
+  mimeType: string,
+  dialogTitle: string,
+): Promise<void> {
+  const file = new File(Paths.cache, fileName);
+
+  try {
+    if (file.exists) {
+      file.delete();
+    }
+    file.create();
+    file.write(content);
+
+    if (!file.exists || file.size === 0) {
+      throw new Error(`Export file was not written: ${file.uri}`);
+    }
+
+    console.log('[export] File written:', file.uri, 'bytes:', file.size, 'platform:', Platform.OS);
+
+    const sharingAvailable = await Sharing.isAvailableAsync();
+    console.log('[export] Sharing available:', sharingAvailable);
+
+    if (!sharingAvailable) {
+      throw new Error('Sharing is not available on this device');
+    }
+
+    await Sharing.shareAsync(file.uri, {
+      mimeType,
+      dialogTitle,
+      UTI: mimeType === 'text/csv' ? 'public.comma-separated-values-text' : 'public.json',
+    });
+
+    console.log('[export] Share sheet opened successfully');
+  } catch (err) {
+    console.error('[export] Mobile export failed:', {
+      fileName,
+      mimeType,
+      platform: Platform.OS,
+      error: err,
+    });
+    throw err;
+  }
+}
+
 export async function exportDataToCSV(data: ExportData): Promise<void> {
   if (Platform.OS === 'web') {
-    // Web implementation
     try {
       const csvContent = generateCSV(data);
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `gabayra-export-${data.exportDate}.csv`);
+      link.setAttribute('download', sanitizeFileName(data.exportDate, 'csv'));
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      console.log('CSV export successful (web)');
+      URL.revokeObjectURL(url);
+      console.log('[export] CSV export successful (web)');
     } catch (err) {
-      console.error('CSV export failed (web):', err);
+      console.error('[export] CSV export failed (web):', err);
       throw err;
     }
     return;
   }
 
-  // Mobile implementation
-  try {
-    const csvContent = generateCSV(data);
-    const fileName = `gabayra-export-${data.exportDate}.csv`;
-    const fileUri = FileSystem.documentDirectory + fileName;
-
-    console.log('Writing CSV file to:', fileUri);
-    await FileSystem.writeAsStringAsync(fileUri, csvContent, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    console.log('CSV file written successfully');
-
-    if (await Sharing.isAvailableAsync()) {
-      console.log('Sharing CSV file');
-      await Sharing.shareAsync(fileUri, {
-        mimeType: 'text/csv',
-        dialogTitle: 'Export your medication data',
-      });
-      console.log('CSV file shared successfully');
-    } else {
-      console.error('Sharing not available on this device');
-    }
-  } catch (err) {
-    console.error('CSV export failed (mobile):', err);
-    throw err;
-  }
+  const csvContent = generateCSV(data);
+  const fileName = sanitizeFileName(data.exportDate, 'csv');
+  await writeAndShareMobileFile(
+    fileName,
+    csvContent,
+    'text/csv',
+    'Export your medication data',
+  );
 }
 
 function generateCSV(data: ExportData): string {
@@ -127,42 +160,26 @@ export async function exportDataToJSON(data: ExportData): Promise<void> {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `gabayra-export-${data.exportDate}.json`);
+      link.setAttribute('download', sanitizeFileName(data.exportDate, 'json'));
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      console.log('JSON export successful (web)');
+      URL.revokeObjectURL(url);
+      console.log('[export] JSON export successful (web)');
     } catch (err) {
-      console.error('JSON export failed (web):', err);
+      console.error('[export] JSON export failed (web):', err);
       throw err;
     }
     return;
   }
 
-  try {
-    const jsonContent = JSON.stringify(data, null, 2);
-    const fileName = `gabayra-export-${data.exportDate}.json`;
-    const fileUri = FileSystem.documentDirectory + fileName;
-
-    console.log('Writing JSON file to:', fileUri);
-    await FileSystem.writeAsStringAsync(fileUri, jsonContent, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
-    console.log('JSON file written successfully');
-
-    if (await Sharing.isAvailableAsync()) {
-      console.log('Sharing JSON file');
-      await Sharing.shareAsync(fileUri, {
-        mimeType: 'application/json',
-        dialogTitle: 'Export your medication data',
-      });
-      console.log('JSON file shared successfully');
-    } else {
-      console.error('Sharing not available on this device');
-    }
-  } catch (err) {
-    console.error('JSON export failed (mobile):', err);
-    throw err;
-  }
+  const jsonContent = JSON.stringify(data, null, 2);
+  const fileName = sanitizeFileName(data.exportDate, 'json');
+  await writeAndShareMobileFile(
+    fileName,
+    jsonContent,
+    'application/json',
+    'Export your medication data',
+  );
 }

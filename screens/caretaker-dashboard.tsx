@@ -9,9 +9,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
-  sendPatientReminder, saveExpoPushToken,
+  sendPatientReminder, saveExpoPushToken, unlinkPatient,
 } from '@/api/index';
-import { getApiBaseUrl } from '@/lib/apiConfig';
 import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
@@ -974,15 +973,14 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                       style: 'destructive',
                       onPress: async () => {
                         try {
-                          const API_URL = getApiBaseUrl();
-                          await fetch(`${API_URL}/patients/unlink`, {
-                            method: 'DELETE',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ caretaker_uid: uid, patient_uid: p.firebase_uid }),
+                          await unlinkPatient({
+                            caretaker_uid: uid,
+                            patient_uid: p.firebase_uid,
                           });
                           await fetchPatients(true);
                           showAlert('Success', 'Patient removed successfully');
                         } catch (err) {
+                          console.error('Remove patient failed:', err);
                           showAlert('Error', 'Could not remove patient');
                         }
                       },

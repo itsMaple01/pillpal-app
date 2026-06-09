@@ -131,6 +131,9 @@ export const linkPatient = (data: {
   patient_uid: string;
 }) => api.post('/api/patients/link', data);
 
+export const unlinkPatient = (body: { caretaker_uid: string; patient_uid: string }) =>
+  api.delete('/api/patients/unlink', { data: body });
+
 export const getUserByEmail = (email: string) =>
   api.get(`/api/users/by-email/${encodeURIComponent(email)}`);
 
