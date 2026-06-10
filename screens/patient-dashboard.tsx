@@ -52,7 +52,7 @@ import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
 import { useNetworkStatus } from '@/lib/offline/network';
-import { exportDataToCSV, exportDataToJSON } from '@/lib/dataExport';
+import { confirmAndExportCSV, exportDataToJSON } from '@/lib/dataExport';
 import Constants from 'expo-constants';
 import { pickEarliestReminderSlot, parseTimeSlot } from '@/utils/algorithms/greedy';
 import { validateMedicationName } from '@/utils/algorithms/linear';
@@ -784,12 +784,10 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   const { isConnected, isInternetReachable } = useNetworkStatus();
   const online = isConnected && isInternetReachable;
-  const isExpoGo = Constants.appOwnership === 'expo';
 
   useEffect(() => {
-    if (isExpoGo) return;
     rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
-  }, [medications, isExpoGo, uid]);
+  }, [medications, uid]);
 
   useEffect(() => {
     setupNotifications().catch(() => {});
@@ -801,7 +799,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       if (token) {
         try {
           await saveExpoPushToken(uid, token);
-          Alert.alert('Success', 'Token saved!');
+          Alert.alert('Token Saved!', 'Push notifications are now enabled.');
         } catch (err) {
           Alert.alert('Save Failed', String(err));
           console.error('PATIENT TOKEN SAVE FAILED:', err);
@@ -1088,7 +1086,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         statistics: stats,
       };
 
-      await exportDataToCSV(exportData);
+      await confirmAndExportCSV(exportData);
       if (Platform.OS === 'web') {
         window.alert('Data exported successfully!');
       } else {
@@ -1158,6 +1156,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         onPress={() => setActiveTab('Medications')}
       />
       <MenuRow icon="calendar-outline" label="Calendar" sub="View your schedule" onPress={() => setActiveTab('Calendar')} />
+      <MenuRow
+        icon="cube-outline"
+        label="Inventory"
+        sub={`${medications.filter(m => !m.suspended).length} medications · ${medications.filter(m => !m.suspended && m.currentStock !== undefined && m.currentStock <= (m.refillThreshold ?? 5)).length} low stock`}
+        onPress={() => { setInventoryMedId(null); setShowInventory(true); }}
+      />
     </ScrollView>
   );
 
@@ -1232,6 +1236,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         sub={`${medications.length} active · ${takenToday} taken today`}
         badge={medications.length}
         onPress={() => setActiveTab('Medications')}
+      />
+      <MenuRow
+        icon="cube-outline"
+        label="Inventory"
+        sub={`${medications.filter(m => !m.suspended).length} medications · ${medications.filter(m => !m.suspended && m.currentStock !== undefined && m.currentStock <= (m.refillThreshold ?? 5)).length} low stock`}
+        onPress={() => { setInventoryMedId(null); setShowInventory(true); }}
       />
       <MenuRow
         icon="bar-chart-outline"
@@ -1442,33 +1452,33 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           onLogout();
         }}
       />
-      <Modal visible={showStatistics} animationType="slide" onRequestClose={() => setShowStatistics(false)}>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStatistics(false)} />
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Statistics</Text>
-              <TouchableOpacity onPress={() => setShowStatistics(false)}>
-                <AppIcon name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            <View style={{ flex: 1 }}>
-              <StatisticsScreen
-              stats={{
-                total: medications.length,
-                taken: medications.filter(m => m.taken && !m.suspended).length,
-                missed: medications.filter(m => m.missed && !m.suspended).length,
-                pending: medications.filter(m => !m.taken && !m.missed && !m.suspended).length,
-              }}
-              connectedAccounts={patientIncomingReqs.map((req: any) => ({
-                id: req.id,
-                name: req.caretaker_name || req.caretaker_email,
-                type: 'caretaker' as const,
-                email: req.caretaker_email,
-              }))}
-            />
-            </View>
+      <Modal
+        visible={showStatistics}
+        animationType="none"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowStatistics(false)}
+      >
+        <View style={[styles.fullscreenModal, { paddingTop: insets.top }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Statistics</Text>
+            <TouchableOpacity onPress={() => setShowStatistics(false)}>
+              <AppIcon name="close" size={24} color="#333" />
+            </TouchableOpacity>
           </View>
+          <StatisticsScreen
+            stats={{
+              total: medications.length,
+              taken: medications.filter(m => m.taken && !m.suspended).length,
+              missed: medications.filter(m => m.missed && !m.suspended).length,
+              pending: medications.filter(m => !m.taken && !m.missed && !m.suspended).length,
+            }}
+            connectedAccounts={patientIncomingReqs.map((req: any) => ({
+              id: req.id,
+              name: req.caretaker_name || req.caretaker_email,
+              type: 'caretaker' as const,
+              email: req.caretaker_email,
+            }))}
+          />
         </View>
       </Modal>
       <LinkCaretakerModal
@@ -1663,18 +1673,9 @@ const styles = StyleSheet.create({
   tabLabel:       { fontSize: TEXT.sm, color: '#aaa', marginTop: 2 },
   tabLabelActive: { color: GREEN, fontWeight: '700' },
 
-  // Statistics modal styles
-  modalOverlay: {
+  fullscreenModal: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '85%',
-    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',

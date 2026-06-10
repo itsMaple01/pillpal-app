@@ -11,7 +11,7 @@ import {
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
   sendPatientReminder, saveExpoPushToken, unlinkPatient,
 } from '@/api/index';
-import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
+import { registerForPushNotificationsAsync, setupNotifications } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { cachePatients, getCachedPatients } from '@/lib/offline/store';
@@ -39,7 +39,7 @@ import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/Ad
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
 } from '@/lib/tutorial';
-import { exportDataToCSV } from '@/lib/dataExport';
+import { confirmAndExportCSV } from '@/lib/dataExport';
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -199,7 +199,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     getUser(uid)
       .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
       .catch(() => {});
-    import('@/lib/pushNotifications').then(m => m.setupNotifications().catch(() => {}));
+    setupNotifications().catch(() => {});
     registerForPushNotificationsAsync().then(async token => {
       console.log('CARETAKER TOKEN RESULT:', token);
       if (token) {
@@ -285,7 +285,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         statistics: stats,
       };
 
-      await exportDataToCSV(exportData);
+      await confirmAndExportCSV(exportData);
       if (Platform.OS === 'web') {
         window.alert('Data exported successfully!');
       } else {
@@ -1333,33 +1333,33 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         onLogout();
       }}
     />
-    <Modal visible={showStatistics} animationType="slide" onRequestClose={() => setShowStatistics(false)}>
-      <View style={styles.modalOverlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStatistics(false)} />
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Statistics</Text>
-            <TouchableOpacity onPress={() => setShowStatistics(false)}>
-              <AppIcon name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-          <View style={{ flex: 1 }}>
-            <StatisticsScreen
-            stats={{
-              total: Object.values(scheduleByPatient).flat().length,
-              taken: Object.values(scheduleByPatient).flat().filter(m => m.taken && !m.suspended).length,
-              missed: Object.values(scheduleByPatient).flat().filter(m => m.missed && !m.suspended).length,
-              pending: Object.values(scheduleByPatient).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
-            }}
-            connectedAccounts={patients.map(p => ({
-              id: p.firebase_uid,
-              name: p.full_name || p.email || 'Unknown',
-              type: 'patient' as const,
-              email: p.email || '',
-            }))}
-          />
-          </View>
+    <Modal
+      visible={showStatistics}
+      animationType="none"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setShowStatistics(false)}
+    >
+      <View style={[styles.fullscreenModal, { paddingTop: insets.top }]}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Statistics</Text>
+          <TouchableOpacity onPress={() => setShowStatistics(false)}>
+            <AppIcon name="close" size={24} color="#333" />
+          </TouchableOpacity>
         </View>
+        <StatisticsScreen
+          stats={{
+            total: Object.values(scheduleByPatient).flat().length,
+            taken: Object.values(scheduleByPatient).flat().filter(m => m.taken && !m.suspended).length,
+            missed: Object.values(scheduleByPatient).flat().filter(m => m.missed && !m.suspended).length,
+            pending: Object.values(scheduleByPatient).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
+          }}
+          connectedAccounts={patients.map(p => ({
+            id: p.firebase_uid,
+            name: p.full_name || p.email || 'Unknown',
+            type: 'patient' as const,
+            email: p.email || '',
+          }))}
+        />
       </View>
     </Modal>
     <MedicationInventoryModal
@@ -1813,18 +1813,9 @@ const styles = StyleSheet.create({
   editModalSave:     { flex: 1, backgroundColor: GREEN, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   editModalSaveText: { fontWeight: '800', color: '#fff' },
 
-  // Statistics modal styles
-  modalOverlay: {
+  fullscreenModal: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '85%',
-    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',

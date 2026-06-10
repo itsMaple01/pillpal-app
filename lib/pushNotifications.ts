@@ -5,15 +5,10 @@ import type { PatientMedication } from '@/types/medication';
 import { parseMedicationTime } from '@/utils/medicationTimeBucket';
 import { getReminderPlan } from '@/api/index';
 
-let warned = false;
 let handlerReady = false;
 let lastScheduleKey = '';
 
 const SCHEDULE_STORAGE_KEY = 'gabayra:notification-schedule-key';
-
-function isExpoGo(): boolean {
-  return Constants.executionEnvironment === 'storeClient';
-}
 
 async function getNotifications() {
   return import('expo-notifications');
@@ -43,7 +38,6 @@ async function ensureAndroidChannel(Notifications: Awaited<ReturnType<typeof get
     vibrationPattern: [0, 250, 250, 250],
     enableVibrate: true,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    bypassDnd: false,
   });
 }
 
@@ -66,63 +60,34 @@ export async function setupNotifications(): Promise<void> {
     }
     await ensureAndroidChannel(Notifications);
   } catch (e) {
-    if (!warned) {
-      console.warn('Notification setup skipped:', e);
-      warned = true;
-    }
+    console.warn('Notification setup skipped:', e);
   }
 }
 
-/** Register for Expo push tokens — no Expo Go guards, always attempt token retrieval. */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
 
   try {
-    const Notifications = await getNotifications();
-
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-        shouldShowBanner: true,
-        shouldShowList: true,
-      }),
-    });
-
-    await ensureAndroidChannel(Notifications);
-
+    const Notifications = await import('expo-notifications');
     const { status: existing } = await Notifications.getPermissionsAsync();
     let finalStatus = existing;
     if (existing !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync({
-        ios: { allowAlert: true, allowSound: true, allowBadge: true },
-      });
+      const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
-    if (finalStatus !== 'granted') {
-      console.warn('[push] Permission not granted:', finalStatus);
-      return null;
-    }
+    if (finalStatus !== 'granted') return null;
 
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
       Constants.easConfig?.projectId;
 
-    if (!projectId) {
-      console.error('[push] Missing EAS projectId in app config');
-      return null;
-    }
+    const token = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId: String(projectId) } : undefined,
+    );
 
-    console.log('[push] Requesting token with projectId:', projectId);
-    const tokenResponse = await Notifications.getExpoPushTokenAsync({
-      projectId: String(projectId),
-    });
-
-    console.log('[push] Token received:', tokenResponse.data);
-    return tokenResponse.data;
+    return token.data;
   } catch (e) {
-    console.error('[push] Registration failed:', e);
+    console.error('Push registration failed:', e);
     return null;
   }
 }
@@ -133,12 +98,7 @@ export async function presentLocalNotification(title: string, body: string) {
   try {
     const Notifications = await getNotifications();
     await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: true,
-        priority: Notifications.AndroidNotificationPriority?.MAX ?? 'max',
-      },
+      content: { title, body, sound: true },
       trigger: null,
     });
   } catch (err) {

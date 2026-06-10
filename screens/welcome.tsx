@@ -20,13 +20,13 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <WelcomeBackground />
 
-      <View style={[styles.top, { paddingTop: insets.top + 24 }]}>
-        <AppLogo size={96} />
+      <View style={[styles.top, { paddingTop: insets.top + 20 }]}>
+        <AppLogo size={160} variant="transparent" />
         <Text style={styles.brand}>{APP_NAME}</Text>
         <Text style={styles.tagline}>{APP_TAGLINE}</Text>
       </View>
 
-      <View style={[styles.bottom, { paddingBottom: insets.bottom + 16 }]}>
+      <View style={[styles.bottom, { paddingBottom: insets.bottom + 28 }]}>
         <Text style={styles.headline}>
           Stay on track with reminders that keep you and your family connected.
         </Text>
@@ -52,16 +52,16 @@ export default function WelcomeScreen({ onGetStarted, onLogin }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#ffffff', justifyContent: 'space-between' },
   top: {
-    flex: 0.9,
+    flex: 0.75,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
-  brand: { fontSize: 32, fontWeight: '800', color: theme.greenDark, marginTop: 16 },
+  brand: { fontSize: 34, fontWeight: '800', color: theme.greenDark, marginTop: 20 },
   tagline: { fontSize: 15, color: theme.textSecondary, marginTop: 6 },
   bottom: {
     paddingHorizontal: 28,
-    paddingTop: 12,
+    paddingTop: 20,
     gap: 14,
   },
   headline: {
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
     color: theme.text,
     lineHeight: 28,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   primaryBtn: {
     backgroundColor: theme.green,

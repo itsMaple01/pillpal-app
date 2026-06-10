@@ -1,6 +1,6 @@
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 interface MedicationRecord {
   date: string;
@@ -85,6 +85,32 @@ async function writeAndShareMobileFile(
     });
     throw err;
   }
+}
+
+export function confirmAndExportCSV(data: ExportData): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      exportDataToCSV(data).then(resolve).catch(reject);
+    };
+
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Are you sure you want to export your medication data?')) {
+        run();
+      } else {
+        resolve();
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Export Data',
+      'Are you sure you want to export your medication data?',
+      [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
+        { text: 'Confirm', onPress: run },
+      ],
+    );
+  });
 }
 
 export async function exportDataToCSV(data: ExportData): Promise<void> {

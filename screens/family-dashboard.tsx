@@ -9,7 +9,7 @@ import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
   saveExpoPushToken, unlinkPatient,
 } from '@/api/index';
-import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
+import { registerForPushNotificationsAsync, setupNotifications } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { mapMedicationRows } from '@/services/medicationRealtime';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
@@ -32,7 +32,7 @@ import { theme } from '@/lib/theme';
 import {
   isTutorialDone, setTutorialDone, FAMILY_TUTORIAL,
 } from '@/lib/tutorial';
-import { exportDataToCSV } from '@/lib/dataExport';
+import { confirmAndExportCSV } from '@/lib/dataExport';
 import type { PatientMedication } from '@/types/medication';
 import type { ComponentProps } from 'react';
 
@@ -142,7 +142,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     getUser(uid)
       .then(r => setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member'))
       .catch(() => setDisplayName('Family member'));
-    import('@/lib/pushNotifications').then(m => m.setupNotifications().catch(() => {}));
+    setupNotifications().catch(() => {});
     registerForPushNotificationsAsync().then(async token => {
       console.log('FAMILY TOKEN RESULT:', token);
       if (token) {
@@ -239,7 +239,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         statistics: stats,
       };
 
-      await exportDataToCSV(exportData);
+      await confirmAndExportCSV(exportData);
       if (Platform.OS === 'web') {
         window.alert('Data exported successfully!');
       } else {
@@ -644,33 +644,33 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           onLogout();
         }}
       />
-      <Modal visible={showStatistics} animationType="slide" onRequestClose={() => setShowStatistics(false)}>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStatistics(false)} />
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Statistics</Text>
-              <TouchableOpacity onPress={() => setShowStatistics(false)}>
-                <AppIcon name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            <View style={{ flex: 1 }}>
-              <StatisticsScreen
-              stats={{
-                total: Object.values(medsByPerson).flat().length,
-                taken: Object.values(medsByPerson).flat().filter(m => m.taken && !m.suspended).length,
-                missed: Object.values(medsByPerson).flat().filter(m => m.missed && !m.suspended).length,
-                pending: Object.values(medsByPerson).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
-              }}
-              connectedAccounts={people.map(p => ({
-                id: p.firebase_uid,
-                name: p.full_name || p.email || 'Unknown',
-                type: 'patient' as const,
-                email: p.email || '',
-              }))}
-            />
-            </View>
+      <Modal
+        visible={showStatistics}
+        animationType="none"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowStatistics(false)}
+      >
+        <View style={[styles.fullscreenModal, { paddingTop: insets.top }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Statistics</Text>
+            <TouchableOpacity onPress={() => setShowStatistics(false)}>
+              <AppIcon name="close" size={24} color="#333" />
+            </TouchableOpacity>
           </View>
+          <StatisticsScreen
+            stats={{
+              total: Object.values(medsByPerson).flat().length,
+              taken: Object.values(medsByPerson).flat().filter(m => m.taken && !m.suspended).length,
+              missed: Object.values(medsByPerson).flat().filter(m => m.missed && !m.suspended).length,
+              pending: Object.values(medsByPerson).flat().filter(m => !m.taken && !m.missed && !m.suspended).length,
+            }}
+            connectedAccounts={people.map(p => ({
+              id: p.firebase_uid,
+              name: p.full_name || p.email || 'Unknown',
+              type: 'patient' as const,
+              email: p.email || '',
+            }))}
+          />
         </View>
       </Modal>
       <MedicationInventoryModal
@@ -828,18 +828,9 @@ const styles = StyleSheet.create({
   logoutText: { color: '#c62828', fontWeight: '800', fontSize: TEXT.md },
   version: { textAlign: 'center', color: '#ccc', fontSize: TEXT.xs, marginTop: 20 },
 
-  // Statistics modal styles
-  modalOverlay: {
+  fullscreenModal: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '85%',
-    maxHeight: '90%',
   },
   linkedPatientsWrap: { gap: 10, marginBottom: 8 },
   emptyCard: {

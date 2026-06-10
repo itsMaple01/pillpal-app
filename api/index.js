@@ -43,5 +43,5 @@ setInterval(checkMissedDoses, 5 * 60 * 1000);
 checkMissedDoses();
 
 const sendDueMedicationReminders = require('./medicationReminderPusher');
-setInterval(sendDueMedicationReminders, 60 * 1000);
+setInterval(sendDueMedicationReminders, 5 * 60 * 1000);
 sendDueMedicationReminders();
