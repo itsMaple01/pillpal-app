@@ -13,7 +13,7 @@ import PatientDashboard from './screens/patient-dashboard';
 import FamilyDashboard from './screens/family-dashboard';
 import CaretakerDashboard from './screens/caretaker-dashboard';
 import OfflineBanner from './components/OfflineBanner';
-import { setupNotifications } from './lib/pushNotifications';
+import { setupNotifications } from './lib/localNotifications';
 import AppLogo from './components/AppLogo';
 import { theme } from './lib/theme';
 

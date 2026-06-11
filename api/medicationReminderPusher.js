@@ -1,5 +1,5 @@
 const pool = require('./db');
-const { pushToUser } = require('./lib/expoPush');
+const { sendPushNotification } = require('./lib/expoPush');
 
 const WINDOW_MINUTES = 5;
 
@@ -61,30 +61,36 @@ async function alreadySentToday(medicationId) {
 }
 
 async function sendPushAndLog(row, body) {
-  const pushResult = await pushToUser(row.expo_push_token, {
-    title: 'GabayRa — Medication reminder',
-    body,
-    data: {
-      type: 'med_reminder',
-      medication_id: row.medication_id,
-      patient_uid: row.patient_uid,
-      schedule_id: row.schedule_id ?? null,
-    },
-  });
+  if (!row.expo_push_token) {
+    console.warn(`⚠️ No FCM token for patient ${row.patient_uid}`);
+    return false;
+  }
 
-  if (pushResult.ok) {
+  try {
+    await sendPushNotification(
+      row.expo_push_token,
+      'GabayRa — Medication reminder',
+      body,
+      {
+        type: 'med_reminder',
+        medication_id: row.medication_id,
+        patient_uid: row.patient_uid,
+        schedule_id: row.schedule_id ?? '',
+      },
+    );
+
     await pool.query(
       `INSERT INTO medication_push_log (medication_id, patient_uid, push_type)
        VALUES ($1, $2, 'scheduled')
        ON CONFLICT (medication_id, push_date, push_type) DO NOTHING`,
       [row.medication_id, row.patient_uid],
     );
-    console.log(`📲 Scheduled push sent: ${row.medication_name} → ${row.patient_uid}`);
+    console.log(`📲 Scheduled FCM push sent: ${row.medication_name} → ${row.patient_uid}`);
     return true;
+  } catch (err) {
+    console.warn(`⚠️ FCM push failed for med ${row.medication_id}:`, err.message);
+    return false;
   }
-
-  console.warn(`⚠️ Push failed for med ${row.medication_id}:`, pushResult.error);
-  return false;
 }
 
 async function sendDueMedicationReminders() {

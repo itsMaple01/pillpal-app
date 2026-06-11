@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db');
 const admin = require('../firebaseAdmin');
-const { pushToUser } = require('../lib/expoPush');
+const { sendPushNotification } = require('../lib/expoPush');
 
 // POST caregiver → send medication reminder push to patient
 router.post('/send', async (req, res) => {
@@ -41,11 +41,17 @@ router.post('/send', async (req, res) => {
 
     let pushResult = { ok: false, error: 'Patient has not enabled notifications on their device yet.' };
     if (row.patient_token) {
-      pushResult = await pushToUser(row.patient_token, {
-        title: 'GabayRa — Medication reminder',
-        body,
-        data: { type: 'caregiver_reminder', patient_uid, caretaker_uid },
-      });
+      try {
+        await sendPushNotification(
+          row.patient_token,
+          'GabayRa — Medication reminder',
+          body,
+          { type: 'caregiver_reminder', patient_uid, caretaker_uid },
+        );
+        pushResult = { ok: true };
+      } catch (pushErr) {
+        pushResult = { ok: false, error: pushErr.message };
+      }
     }
 
     const alertMsg = `${caregiverName} sent a medication reminder to ${patientName}.`;
