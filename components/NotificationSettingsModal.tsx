@@ -9,7 +9,7 @@ import {
   areAppNotificationsEnabled,
   setAppNotificationsEnabled,
 } from '@/lib/notificationPrefs';
-import { setupNotifications } from '@/lib/pushNotifications';
+import { setupNotifications } from '@/lib/localNotifications';
 
 interface Props {
   visible: boolean;

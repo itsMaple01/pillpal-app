@@ -27,12 +27,11 @@ import {
   getPatientIncomingLinkRequests, acceptLinkRequestAsPatient, rejectLinkRequest,
 } from '@/api/index';
 import { subscribePatientMedications } from '@/services/medicationRealtime';
+import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import {
-  registerForPushNotificationsAsync,
   rescheduleMedicationLocalNotifications,
   forceRescheduleMedicationLocalNotifications,
-  setupNotifications,
-} from '@/lib/pushNotifications';
+} from '@/lib/localNotifications';
 import { logIntelligenceEvent } from '@/api/index';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -53,7 +52,6 @@ import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
 import { useNetworkStatus } from '@/lib/offline/network';
 import { confirmAndExportCSV, exportDataToJSON } from '@/lib/dataExport';
-import Constants from 'expo-constants';
 import { pickEarliestReminderSlot, parseTimeSlot } from '@/utils/algorithms/greedy';
 import { validateMedicationName } from '@/utils/algorithms/linear';
 
@@ -790,22 +788,16 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   }, [medications, uid]);
 
   useEffect(() => {
-    setupNotifications().catch(() => {});
     registerForPushNotificationsAsync().then(async token => {
-      Alert.alert(
-        'Token Debug',
-        `Token: ${token || 'NULL'}\nexecEnv: ${Constants.executionEnvironment}\nappOwnership: ${Constants.appOwnership}`,
-      );
+      Alert.alert('FCM Token Debug', `Token: ${token || 'NULL'}`);
       if (token) {
         try {
           await saveExpoPushToken(uid, token);
           Alert.alert('Token Saved!', 'Push notifications are now enabled.');
         } catch (err) {
           Alert.alert('Save Failed', String(err));
-          console.error('PATIENT TOKEN SAVE FAILED:', err);
+          console.error('PATIENT FCM TOKEN SAVE FAILED:', err);
         }
-      } else {
-        console.log('PATIENT NO TOKEN RETURNED');
       }
     });
     logIntelligenceEvent({ firebase_uid: uid, event_type: 'opened_app' }).catch(() => {});

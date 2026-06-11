@@ -9,7 +9,7 @@ import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
   saveExpoPushToken, unlinkPatient,
 } from '@/api/index';
-import { registerForPushNotificationsAsync, setupNotifications } from '@/lib/pushNotifications';
+import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { mapMedicationRows } from '@/services/medicationRealtime';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
@@ -142,18 +142,16 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     getUser(uid)
       .then(r => setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member'))
       .catch(() => setDisplayName('Family member'));
-    setupNotifications().catch(() => {});
     registerForPushNotificationsAsync().then(async token => {
-      console.log('FAMILY TOKEN RESULT:', token);
+      Alert.alert('FCM Token Debug', `Token: ${token || 'NULL'}`);
       if (token) {
         try {
           await saveExpoPushToken(uid, token);
-          console.log('FAMILY TOKEN SAVED SUCCESSFULLY');
+          Alert.alert('Token Saved!', 'Push notifications are now enabled.');
         } catch (err) {
-          console.error('FAMILY TOKEN SAVE FAILED:', err);
+          Alert.alert('Save Failed', String(err));
+          console.error('FAMILY FCM TOKEN SAVE FAILED:', err);
         }
-      } else {
-        console.log('FAMILY NO TOKEN RETURNED');
       }
     });
     isTutorialDone('family', uid).then(done => {

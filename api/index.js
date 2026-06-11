@@ -1,7 +1,18 @@
-process.env.FIREBASE_PRIVATE_KEY = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+require('dotenv').config();
+
+const admin = require('firebase-admin');
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    }),
+  });
+}
+
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
 
 const { runMigrations } = require('./db/migrate');
 runMigrations().catch(() => {});
@@ -27,13 +38,12 @@ app.use('/api/linking',      require('./routes/linking'));
 app.use('/api/alerts',       require('./routes/alerts'));
 app.use('/api/reminders',    require('./routes/reminders'));
 app.use('/api/intelligence', require('./routes/intelligence'));
-app.use('/api/ai',           require('./routes/aiPredict'));  // ← moved here
+app.use('/api/ai',           require('./routes/aiPredict'));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-  
-  // Initialize ML models on startup
+
   const { initializeModels } = require('./lib/ml/predictiveAnalytics');
   await initializeModels();
 });

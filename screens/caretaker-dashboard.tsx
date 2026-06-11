@@ -11,7 +11,7 @@ import {
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
   sendPatientReminder, saveExpoPushToken, unlinkPatient,
 } from '@/api/index';
-import { registerForPushNotificationsAsync, setupNotifications } from '@/lib/pushNotifications';
+import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { cachePatients, getCachedPatients } from '@/lib/offline/store';
@@ -199,18 +199,16 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     getUser(uid)
       .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
       .catch(() => {});
-    setupNotifications().catch(() => {});
     registerForPushNotificationsAsync().then(async token => {
-      console.log('CARETAKER TOKEN RESULT:', token);
+      Alert.alert('FCM Token Debug', `Token: ${token || 'NULL'}`);
       if (token) {
         try {
           await saveExpoPushToken(uid, token);
-          console.log('CARETAKER TOKEN SAVED SUCCESSFULLY');
+          Alert.alert('Token Saved!', 'Push notifications are now enabled.');
         } catch (err) {
-          console.error('CARETAKER TOKEN SAVE FAILED:', err);
+          Alert.alert('Save Failed', String(err));
+          console.error('CARETAKER FCM TOKEN SAVE FAILED:', err);
         }
-      } else {
-        console.log('CARETAKER NO TOKEN RETURNED');
       }
     });
     isTutorialDone('caregiver', uid).then(done => {
