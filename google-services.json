@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "744880894649",
+    "project_id": "pillpal-app-e68de",
+    "storage_bucket": "pillpal-app-e68de.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:744880894649:android:c0afa4c71ff5783bb62168",
+        "android_client_info": {
+          "package_name": "com.pillpal.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB18P4i2z-jUqt6Rt48ur5vTnv0F09VGCQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

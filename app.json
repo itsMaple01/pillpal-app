@@ -19,7 +19,6 @@
       "bundleIdentifier": "com.pillpal.app",
       "infoPlist": {
         "UIBackgroundModes": [
-          "remote-notification",
           "remote-notification"
         ]
       }
@@ -30,10 +29,8 @@
         "backgroundColor": "#2d7a3a"
       },
       "package": "com.pillpal.app",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE",
-        "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "POST_NOTIFICATIONS"
@@ -50,20 +47,16 @@
           "color": "#2d7a3a",
           "defaultChannel": "medication-reminders"
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ],
     "extra": {
       "apiUrl": "https://pillpal-app.onrender.com",
       "eas": {
-        "projectId": "f05318b2-f032-4208-89f7-b0c91ab79d6b"
+        "projectId": "62fe7318-4957-4c42-ba08-ee1247855185"
       }
     },
-    "owner": "itsmaple01",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/f05318b2-f032-4208-89f7-b0c91ab79d6b"
-    }
+    "owner": "hashchug"
   }
 }
