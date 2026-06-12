@@ -42,16 +42,7 @@
     "plugins": [
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/icon.png",
-          "color": "#2d7a3a",
-          "defaultChannel": "medication-reminders"
-        }
-      ],
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging"
+      "expo-font"
     ],
     "extra": {
       "apiUrl": "https://pillpal-app.onrender.com",
