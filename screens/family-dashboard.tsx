@@ -7,12 +7,13 @@ import { useCallback, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
-  saveExpoPushToken, unlinkPatient,
+  unlinkPatient,
 } from '@/api/index';
-import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
+import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { mapMedicationRows } from '@/services/medicationRealtime';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
+import { DOSE_STATUS_COLORS, DOSE_STATUS_ICONS, resolveMedDoseStatus } from '@/lib/doseStatus';
 import LinkPatientModal from '@/components/Linkpatientmodal';
 import AppHeader from '@/components/AppHeader';
 import AppIcon from '@/components/AppIcon';
@@ -142,18 +143,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     getUser(uid)
       .then(r => setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member'))
       .catch(() => setDisplayName('Family member'));
-    registerForPushNotificationsAsync().then(async token => {
-      Alert.alert('FCM Token Debug', `Token: ${token || 'NULL'}`);
-      if (token) {
-        try {
-          await saveExpoPushToken(uid, token);
-          Alert.alert('Token Saved!', 'Push notifications are now enabled.');
-        } catch (err) {
-          Alert.alert('Save Failed', String(err));
-          console.error('FAMILY FCM TOKEN SAVE FAILED:', err);
-        }
-      }
-    });
+    registerAndSavePushTokenIfNeeded(uid);
     isTutorialDone('family', uid).then(done => {
       if (!done) {
         setTutorialIdx(0);
@@ -237,7 +227,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         statistics: stats,
       };
 
-      await confirmAndExportCSV(exportData);
+      const exported = await confirmAndExportCSV(exportData);
+      if (!exported) return;
       if (Platform.OS === 'web') {
         window.alert('Data exported successfully!');
       } else {
@@ -372,6 +363,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
               ) : (
                 sorted.map(m => {
                   const bucket = medicationTimeBucket(m.time);
+                  const doseStatus = resolveMedDoseStatus(m);
                   return (
                     <View key={m.id} style={styles.scheduleMedRow}>
                       <View style={styles.scheduleTimeBox}>
@@ -385,11 +377,13 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
                           {m.dosage}{bucket ? ` · ${bucket}` : ''}
                         </Text>
                       </View>
-                      <AppIcon
-                        name={m.taken ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={18}
-                        color={m.taken ? GREEN : '#ccc'}
-                      />
+                      <View style={styles.scheduleStatusWrap}>
+                        <AppIcon
+                          name={DOSE_STATUS_ICONS[doseStatus] as 'checkmark-circle'}
+                          size={20}
+                          color={DOSE_STATUS_COLORS[doseStatus]}
+                        />
+                      </View>
                     </View>
                   );
                 })
@@ -790,6 +784,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
+  },
+  scheduleStatusWrap: {
+    width: 28,
+    alignItems: 'center',
+    marginRight: 4,
   },
   scheduleTimeBox: {
     borderWidth: 1.5,

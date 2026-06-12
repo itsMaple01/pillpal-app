@@ -9,7 +9,7 @@ if (!db) {
 }
 import { cacheMedications, getCachedMedications } from '@/lib/offline/store';
 import type { PatientMedication } from '@/types/medication';
-import { isMedicationMissed } from '@/lib/medicationUtils';
+import { getDoseDisplayStatus } from '@/lib/doseStatus';
 
 const LAST_DATE_KEY = 'gabayra:last_medication_date';
 
@@ -30,8 +30,9 @@ export async function mapMedicationRows(rows: unknown[]): Promise<PatientMedicat
   return rows.map((row: any) => {
     const time = row.time ?? row.program ?? '';
     const taken = row.taken ?? false;
-    // Reset taken status if date has changed
+    const takenAt = row.taken_at ?? null;
     const resetTaken = dateChanged ? false : taken;
+    const doseStatus = getDoseDisplayStatus(time, resetTaken, takenAt);
     return {
       id: String(row.id),
       name: row.name ?? '',
@@ -42,7 +43,10 @@ export async function mapMedicationRows(rows: unknown[]): Promise<PatientMedicat
       firestoreId: row.firestore_id ?? undefined,
       suspended: row.suspended ?? false,
       notify_enabled: row.notify_enabled !== false,
-      missed: isMedicationMissed(time, resetTaken),
+      missed: doseStatus === 'missed',
+      late: doseStatus === 'late',
+      doseStatus,
+      takenAt,
       currentStock: row.current_stock ?? undefined,
       refillThreshold: row.refill_threshold ?? undefined,
     };

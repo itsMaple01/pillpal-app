@@ -123,19 +123,23 @@ export async function rescheduleMedicationLocalNotifications(
     await ensureAndroidChannel(Notifications);
     await Notifications.cancelAllScheduledNotificationsAsync();
 
+    const now = new Date();
     const active = meds.filter(m => !m.suspended && m.notify_enabled !== false);
     for (const med of active) {
       const parsed = parseMedicationTime(med.time);
       if (!parsed) continue;
-      const when = subtractMinutes(parsed.hour, parsed.minute, leadMinutes);
 
-      const now = new Date();
+      const scheduledToday = new Date();
+      scheduledToday.setHours(parsed.hour, parsed.minute, 0, 0);
+
+      // Skip past or missed doses for today — never schedule reminders for them.
+      if (scheduledToday <= now) continue;
+
+      const when = subtractMinutes(parsed.hour, parsed.minute, leadMinutes);
       const triggerDate = new Date();
       triggerDate.setHours(when.hour, when.minute, 0, 0);
 
-      if (triggerDate <= now) {
-        triggerDate.setDate(triggerDate.getDate() + 1);
-      }
+      if (triggerDate <= now) continue;
 
       await Notifications.scheduleNotificationAsync({
         content: {

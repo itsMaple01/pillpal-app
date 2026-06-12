@@ -87,17 +87,18 @@ async function writeAndShareMobileFile(
   }
 }
 
-export function confirmAndExportCSV(data: ExportData): Promise<void> {
+/** Returns true only when the user confirmed and export completed. */
+export function confirmAndExportCSV(data: ExportData): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const run = () => {
-      exportDataToCSV(data).then(resolve).catch(reject);
+      exportDataToCSV(data).then(() => resolve(true)).catch(reject);
     };
 
     if (Platform.OS === 'web') {
       if (typeof window !== 'undefined' && window.confirm('Are you sure you want to export your medication data?')) {
         run();
       } else {
-        resolve();
+        resolve(false);
       }
       return;
     }
@@ -106,7 +107,7 @@ export function confirmAndExportCSV(data: ExportData): Promise<void> {
       'Export Data',
       'Are you sure you want to export your medication data?',
       [
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
         { text: 'Confirm', onPress: run },
       ],
     );

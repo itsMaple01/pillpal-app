@@ -20,6 +20,7 @@ export interface Medication {
   suspended?: boolean;
   notify_enabled?: boolean;
   missed?: boolean;
+  late?: boolean;
 }
 
 interface Props {
@@ -117,15 +118,9 @@ export default function MedicationsScreen({
               onPress={() => onEdit?.(med)}
               disabled={readOnly || !onEdit}
             >
-              <View
-                style={[
-                  s.strip,
-                  { backgroundColor: med.suspended ? '#999' : med.missed ? theme.danger : med.taken ? '#bdbdbd' : theme.green },
-                ]}
-              />
               <View style={s.medBody}>
                 <Text style={[s.medName, med.taken && s.medNameTaken]} numberOfLines={1}>
-                  {med.name}{med.suspended ? ' · Paused' : med.missed ? ' · Missed' : ''}
+                  {med.name}{med.suspended ? ' · Paused' : med.missed ? ' · Missed' : med.late ? ' · Late' : ''}
                 </Text>
                 <View style={s.metaRow}>
                   <Text style={s.metaText}>{med.dosage}</Text>
@@ -280,14 +275,7 @@ const s = StyleSheet.create({
     marginBottom: 10,
   },
   medCardPressed: { backgroundColor: theme.greenLight },
-  strip: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 5,
-  },
-  medBody: { flex: 1, padding: 16, paddingLeft: 21, gap: 6 },
+  medBody: { flex: 1, padding: 16, gap: 6 },
   medName: { fontSize: TEXT.md, fontWeight: '800', color: theme.text },
   medNameTaken: { color: theme.textMuted, textDecorationLine: 'line-through' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },

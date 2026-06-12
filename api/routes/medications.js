@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const pool    = require('../db');
 const admin   = require('../firebaseAdmin');
+const { sendPushNotification } = require('../lib/expoPush');
 
 async function bumpPatientActivity(patientUid, type = 'medication_update') {
   try {
@@ -29,25 +30,28 @@ router.get('/:patient_uid', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         m.*,
-        COALESCE(
-          (SELECT dl.status FROM dose_logs dl
-           JOIN schedules s ON s.id = dl.schedule_id
-           WHERE s.medication_id = m.id
-             AND dl.patient_uid = m.patient_uid
-             AND dl.scheduled_at::date = CURRENT_DATE
-             AND dl.status = 'taken'
-           LIMIT 1),
-          'pending'
-        ) as today_status
+        dl.status as dose_log_status,
+        dl.taken_at,
+        dl.scheduled_at as dose_scheduled_at
       FROM medications m
+      LEFT JOIN LATERAL (
+        SELECT dl.status, dl.taken_at, dl.scheduled_at
+        FROM dose_logs dl
+        JOIN schedules s ON s.id = dl.schedule_id
+        WHERE s.medication_id = m.id
+          AND dl.patient_uid = m.patient_uid
+          AND dl.scheduled_at::date = CURRENT_DATE
+        ORDER BY dl.scheduled_at DESC
+        LIMIT 1
+      ) dl ON TRUE
       WHERE m.patient_uid = $1
       ORDER BY m.created_at DESC
     `, [req.params.patient_uid]);
     
-    // Override taken field based on today's dose status
     const medications = result.rows.map(med => ({
       ...med,
-      taken: med.today_status === 'taken'
+      taken: med.dose_log_status === 'taken' || (med.taken && med.last_taken_at && new Date(med.last_taken_at).toDateString() === new Date().toDateString()),
+      taken_at: med.taken_at ?? null,
     }));
     
     res.json(medications);
@@ -115,6 +119,42 @@ router.patch('/:id/taken', async (req, res) => {
       row.patient_uid,
       taken ? 'medication_taken' : 'medication_update',
     );
+
+    if (taken) {
+      try {
+        const patientRes = await pool.query(
+          'SELECT full_name FROM users WHERE firebase_uid = $1',
+          [row.patient_uid],
+        );
+        const patientName = patientRes.rows[0]?.full_name || 'Patient';
+
+        const caretakers = await pool.query(
+          `SELECT u.expo_push_token
+           FROM caretaker_patients cp
+           JOIN users u ON u.firebase_uid = cp.caretaker_uid
+           WHERE cp.patient_uid = $1
+             AND cp.status = 'active'
+             AND u.expo_push_token IS NOT NULL`,
+          [row.patient_uid],
+        );
+
+        for (const c of caretakers.rows) {
+          await sendPushNotification(
+            c.expo_push_token,
+            'Medication Taken',
+            `${patientName} has taken ${row.name}`,
+            {
+              type: 'medication_taken',
+              patient_uid: row.patient_uid,
+              medication_id: String(row.id),
+            },
+          );
+        }
+      } catch (pushErr) {
+        console.warn('Caretaker taken notification failed:', pushErr.message);
+      }
+    }
+
     res.json(row);
   } catch (err) {
     res.status(500).json({ error: err.message });

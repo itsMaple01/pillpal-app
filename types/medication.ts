@@ -10,6 +10,9 @@ export interface PatientMedication {
   suspended?: boolean;
   notify_enabled?: boolean;
   missed?: boolean;
+  late?: boolean;
+  doseStatus?: 'taken' | 'late' | 'missed' | 'upcoming' | 'pending';
+  takenAt?: string | null;
   // Inventory tracking
   currentStock?: number;
   refillThreshold?: number;

@@ -23,23 +23,22 @@ export interface NavTutorialStep extends TutorialStep {
 }
 
 export const PATIENT_TUTORIAL: NavTutorialStep[] = [
-  { tab: 'Home', title: 'Home', body: 'See today’s meds, stats, and shortcuts to your full list and calendar.' },
-  { tab: 'Calendar', title: 'Calendar', body: 'Swipe the week strip to plan ahead. Dots mark days with reminders.' },
-  { tab: 'Medications', title: 'Medications', body: 'Add, edit, or remove reminders. Use the switch when you take a dose.' },
-  { tab: 'Manage', title: 'Manage', body: 'Link caregivers, notification settings, privacy, and sign out.' },
+  { tab: 'Home', title: 'Home', body: 'See today\'s medications, compliance stats, and quick access to inventory and calendar.' },
+  { tab: 'Calendar', title: 'Calendar', body: 'View your full medication schedule by day.' },
+  { tab: 'Medications', title: 'Medications', body: 'Manage all your medications, mark doses as taken, check inventory.' },
+  { tab: 'Manage', title: 'Manage', body: 'Update your profile, view inventory, and manage account settings.' },
 ];
 
 export const FAMILY_TUTORIAL: NavTutorialStep[] = [
-  { tab: 'Home', title: 'Home', body: 'Overview of everyone you support and quick actions to send reminders.' },
-  { tab: 'Family', title: 'Family', body: 'See linked members and accept new link requests from patients.' },
-  { tab: 'Schedule', title: 'Schedule', body: 'Morning, afternoon, and evening doses for each linked person.' },
-  { tab: 'Manage', title: 'Manage', body: 'Link more family, switch to caregiver mode, or sign out.' },
+  { tab: 'Home', title: 'Home', body: 'Overview of linked family members and their medication status.' },
+  { tab: 'Family', title: 'Family', body: 'View linked family members and their health details.' },
+  { tab: 'Schedule', title: 'Schedule', body: 'See all family members\' medication schedules with status indicators.' },
+  { tab: 'Manage', title: 'Manage', body: 'Manage linked members, inventory, and account settings.' },
 ];
 
 export const CAREGIVER_TUTORIAL: NavTutorialStep[] = [
-  { tab: 'Home', title: 'Dashboard', body: 'Quick stats and shortcuts to patients, medications, and alerts.' },
-  { tab: 'Patients', title: 'Patients', body: 'Search, expand a patient, send reminders, and accept link requests.' },
-  { tab: 'Schedule', title: 'Schedule', body: 'Every linked patient’s day in one place — morning through evening.' },
-  { tab: 'Medications', title: 'Medications', body: 'Open a patient to view meds. Alerts live in this tab too.' },
-  { tab: 'Manage', title: 'Manage', body: 'Link patients, account settings, family view, and sign out.' },
+  { tab: 'Home', title: 'Home', body: 'Overview of all linked patients, missed doses, and compliance stats.' },
+  { tab: 'Patients', title: 'Patients', body: 'View and manage each patient, send reminders, view their schedule.' },
+  { tab: 'Schedule', title: 'Schedule', body: 'See all patients\' medication schedules in one daily view with missed/late indicators.' },
+  { tab: 'Manage', title: 'Manage', body: 'Manage linked patients, inventory, alerts, and account settings.' },
 ];

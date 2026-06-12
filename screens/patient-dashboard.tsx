@@ -3,6 +3,7 @@ import {
   ScrollView, StatusBar, Dimensions,
   Alert, Modal, Platform, Switch, Pressable,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import SwipeTabHost from '@/components/SwipeTabHost';
 import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import NavTutorialOverlay from '@/components/NavTutorialOverlay';
@@ -23,11 +24,11 @@ import {
 } from 'firebase/firestore';
 import {
   addMedication, deleteMedication, setMedicationTaken, updateMedication,
-  getUser, saveExpoPushToken, refillMedication, setMedicationFirestoreId,
+  getUser, refillMedication, setMedicationFirestoreId,
   getPatientIncomingLinkRequests, acceptLinkRequestAsPatient, rejectLinkRequest,
 } from '@/api/index';
 import { subscribePatientMedications } from '@/services/medicationRealtime';
-import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
+import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
 import {
   rescheduleMedicationLocalNotifications,
   forceRescheduleMedicationLocalNotifications,
@@ -214,8 +215,259 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
     ...Array.from({ length: getDaysInMonth(y, m) }, (_, i) => i + 1),
   ];
 
+  const isEdit = !!editingMed;
+
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      animationType={isEdit ? 'slide' : 'fade'}
+      transparent={!isEdit}
+      onRequestClose={handleClose}
+    >
+      {isEdit ? (
+        <SafeAreaView style={ms.fullscreen} edges={['top', 'bottom']}>
+          <View style={ms.fullscreenHeader}>
+            <TouchableOpacity style={ms.backBtn} onPress={handleClose} accessibilityLabel="Close">
+              <AppIcon name="arrow-back" size={26} color={GREEN} />
+            </TouchableOpacity>
+            <Text style={ms.fullscreenTitle}>Edit medication</Text>
+            <View style={ms.backBtnSpacer} />
+          </View>
+
+          <ScrollView
+            ref={scrollRef}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={ms.fullscreenScroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={ms.fieldGroup}>
+              <View style={ms.labelRow}>
+                <AppIcon name="fitness-outline" size={18} color={GREEN} />
+                <Text style={ms.labelLarge}>Medicine Name *</Text>
+              </View>
+              <TextInput
+                style={ms.inputLarge}
+                placeholder="Enter medicine name"
+                placeholderTextColor="#c0c0c0"
+                value={name}
+                onChangeText={setName}
+                autoCorrect={false}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={ms.fieldGroup}>
+              <View style={ms.labelRow}>
+                <AppIcon name="pricetag-outline" size={18} color={GREEN} />
+                <Text style={ms.labelLarge}>Dosage</Text>
+              </View>
+              <TextInput
+                style={ms.inputLarge}
+                placeholder="e.g., 1 tablet, 500mg"
+                placeholderTextColor="#c0c0c0"
+                value={dosage}
+                onChangeText={setDosage}
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={ms.fieldGroup}>
+              <View style={ms.labelRow}>
+                <AppIcon name="repeat-outline" size={18} color={GREEN} />
+                <Text style={ms.labelLarge}>Frequency</Text>
+              </View>
+              <TouchableOpacity
+                style={[ms.dropdownLarge, showFreqDrop && ms.dropdownOpen]}
+                onPress={() => setShowFreqDrop(v => !v)}
+                activeOpacity={0.8}
+              >
+                <Text style={ms.dropdownTextLarge}>{FREQUENCIES[freqIdx].label}</Text>
+                <Text style={ms.dropdownArrow}>{showFreqDrop ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {showFreqDrop && (
+                <View style={ms.dropdownList}>
+                  {FREQUENCIES.map((f, i) => (
+                    <TouchableOpacity
+                      key={f.label}
+                      style={[
+                        ms.dropdownItem,
+                        i === freqIdx && ms.dropdownItemActive,
+                        i === FREQUENCIES.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                      onPress={() => { setFreqIdx(i); setShowFreqDrop(false); }}
+                    >
+                      <Text style={[ms.dropdownItemText, i === freqIdx && ms.dropdownItemTextActive]}>
+                        {f.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <View
+              style={ms.fieldGroup}
+              onLayout={e => { timeSectionY.current = e.nativeEvent.layout.y; }}
+            >
+              <View style={ms.labelRow}>
+                <AppIcon name="time-outline" size={18} color={GREEN} />
+                <Text style={ms.labelLarge}>Time *</Text>
+              </View>
+              <TouchableOpacity
+                style={[ms.dropdownLarge, showTimePicker && ms.dropdownOpen]}
+                onPress={() => {
+                  setShowTimePicker(v => !v);
+                  if (!showTimePicker) {
+                    setTimeout(() => scrollRef.current?.scrollTo({ y: timeSectionY.current, animated: true }), 100);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={[ms.dropdownTextLarge, { flex: 1 }]}>
+                  {`${hour}:${minute} ${ampm}`}
+                </Text>
+                <Text style={ms.dropdownArrow}>{showTimePicker ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {showTimePicker && (
+                <View style={ms.timePicker}>
+                  <Text style={ms.timePickerTitle}>Pick a time</Text>
+                  <View style={ms.timePickerRow}>
+                    <View style={ms.timeCol}>
+                      <Text style={ms.timeColLabel}>HR</Text>
+                      <ScrollView style={ms.timeScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                        {HOURS.map(h => (
+                          <TouchableOpacity
+                            key={h}
+                            style={[ms.timeItem, hour === h && ms.timeItemActive]}
+                            onPress={() => setHour(h)}
+                          >
+                            <Text style={[ms.timeItemText, hour === h && ms.timeItemTextActive]}>{h}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                    <Text style={ms.timeSep}>:</Text>
+                    <View style={ms.timeCol}>
+                      <Text style={ms.timeColLabel}>MIN</Text>
+                      <ScrollView style={ms.timeScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                        {MINUTES.map(mn => (
+                          <TouchableOpacity
+                            key={mn}
+                            style={[ms.timeItem, minute === mn && ms.timeItemActive]}
+                            onPress={() => setMinute(mn)}
+                          >
+                            <Text style={[ms.timeItemText, minute === mn && ms.timeItemTextActive]}>{mn}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                    <View style={ms.ampmCol}>
+                      {(['AM', 'PM'] as const).map(p => (
+                        <TouchableOpacity
+                          key={p}
+                          style={[ms.ampmBtn, ampm === p && ms.ampmBtnActive]}
+                          onPress={() => setAmpm(p)}
+                        >
+                          <Text style={[ms.ampmText, ampm === p && ms.ampmTextActive]}>{p}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                  <TouchableOpacity style={ms.timeDoneBtn} onPress={() => setShowTimePicker(false)}>
+                    <Text style={ms.timeDoneText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            <View style={ms.fieldGroup}>
+              {!showEndDate ? (
+                <TouchableOpacity style={ms.endDateBtn} onPress={() => setShowEndDate(true)} activeOpacity={0.8}>
+                  <AppIcon name="calendar-outline" size={18} color={GREEN} />
+                  <Text style={ms.endDateTextLarge}>Set end date (optional)</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity style={ms.removeEndDateBtn} onPress={() => { setShowEndDate(false); setEndDate(null); }}>
+                    <Text style={ms.removeEndDateText}>Remove end date</Text>
+                  </TouchableOpacity>
+                  <View style={ms.calBox}>
+                    <Text style={ms.calBoxLabel}>Remind me until</Text>
+                    <View style={[ms.dateDisplay, !!endDate && ms.dateDisplayActive]}>
+                      <AppIcon name="calendar" size={16} color={endDate ? GREEN : '#aaa'} />
+                      <Text style={[ms.dateDisplayText, !endDate && { color: '#aaa' }]}>
+                        {endDate ? endDate.toLocaleDateString() : 'Select a date'}
+                      </Text>
+                      <Text style={ms.dropdownArrow}>▲</Text>
+                    </View>
+                    <View style={ms.calendar}>
+                      <View style={ms.calNav}>
+                        <TouchableOpacity onPress={() => setCalMonth(new Date(y, m - 1, 1))}>
+                          <Text style={ms.calNavBtn}>‹</Text>
+                        </TouchableOpacity>
+                        <Text style={ms.calMonthLabel}>{MONTHS[m]} {y}</Text>
+                        <TouchableOpacity onPress={() => setCalMonth(new Date(y, m + 1, 1))}>
+                          <Text style={ms.calNavBtn}>›</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={ms.calDayRow}>
+                        {DAYS.map((d, i) => (
+                          <Text key={i} style={ms.calDayLabel}>{d}</Text>
+                        ))}
+                      </View>
+                      <View style={ms.calGrid}>
+                        {cells.map((day, idx) => {
+                          if (day === null) return <View key={`e-${idx}`} style={ms.calCell} />;
+                          const cellDate = new Date(y, m, day);
+                          const isToday = cellDate.toDateString() === today.toDateString();
+                          const isSelected = endDate?.toDateString() === cellDate.toDateString();
+                          const isPast = cellDate < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                          return (
+                            <TouchableOpacity
+                              key={day}
+                              style={[
+                                ms.calCell,
+                                isToday && ms.calCellToday,
+                                isSelected && ms.calCellSelected,
+                                isPast && { opacity: 0.35 },
+                              ]}
+                              disabled={isPast}
+                              onPress={() => setEndDate(cellDate)}
+                            >
+                              <Text style={[
+                                ms.calCellText,
+                                isPast && { color: '#ccc' },
+                                isToday && ms.calCellTextToday,
+                                isSelected && ms.calCellTextSelected,
+                              ]}>
+                                {day}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          </ScrollView>
+
+          <View style={ms.fullscreenFooter}>
+            <TouchableOpacity style={ms.cancelBtnLarge} onPress={handleClose} activeOpacity={0.75}>
+              <Text style={ms.cancelTextLarge}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[ms.saveBtnLarge, saving && { opacity: 0.6 }]}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              <Text style={ms.saveTextLarge}>{saving ? 'Saving...' : 'Save'}</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      ) : (
       <View style={ms.overlay}>
         <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close add medication" />
         <View style={ms.sheet}>
@@ -636,6 +888,7 @@ function AddMedicationModal({ visible, onClose, onSave, saving, editingMed, exis
 
         </View>
       </View>
+      )}
     </Modal>
   );
 }
@@ -788,18 +1041,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   }, [medications, uid]);
 
   useEffect(() => {
-    registerForPushNotificationsAsync().then(async token => {
-      Alert.alert('FCM Token Debug', `Token: ${token || 'NULL'}`);
-      if (token) {
-        try {
-          await saveExpoPushToken(uid, token);
-          Alert.alert('Token Saved!', 'Push notifications are now enabled.');
-        } catch (err) {
-          Alert.alert('Save Failed', String(err));
-          console.error('PATIENT FCM TOKEN SAVE FAILED:', err);
-        }
-      }
-    });
+    registerAndSavePushTokenIfNeeded(uid);
     logIntelligenceEvent({ firebase_uid: uid, event_type: 'opened_app' }).catch(() => {});
   }, [uid]);
 
@@ -1078,7 +1320,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         statistics: stats,
       };
 
-      await confirmAndExportCSV(exportData);
+      const exported = await confirmAndExportCSV(exportData);
+      if (!exported) return;
       if (Platform.OS === 'web') {
         window.alert('Data exported successfully!');
       } else {
@@ -1688,6 +1931,98 @@ const styles = StyleSheet.create({
 // ADD MEDICATION MODAL STYLES
 // ─────────────────────────────────────────────────────────────
 const ms = StyleSheet.create({
+  fullscreen: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  fullscreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8f0e8',
+    backgroundColor: '#f4faf4',
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e8ece8',
+  },
+  backBtnSpacer: { width: 44 },
+  fullscreenTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#142018',
+  },
+  fullscreenScroll: {
+    padding: 20,
+    paddingBottom: 24,
+    gap: 24,
+  },
+  fullscreenFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e8f0e8',
+    backgroundColor: '#fff',
+  },
+  labelLarge: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#555',
+    letterSpacing: 0.5,
+  },
+  inputLarge: {
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    fontSize: 18,
+    color: '#222',
+    backgroundColor: '#fafafa',
+    width: '100%',
+  },
+  dropdownLarge: {
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    backgroundColor: '#fafafa',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  dropdownTextLarge: { fontSize: 18, color: '#222', fontWeight: '600' },
+  endDateTextLarge: { fontSize: 16, color: GREEN, fontWeight: '700', marginLeft: 8 },
+  cancelBtnLarge: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 14,
+    paddingVertical: 18,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  cancelTextLarge: { fontSize: 17, fontWeight: '800', color: '#666' },
+  saveBtnLarge: {
+    flex: 1,
+    backgroundColor: GREEN,
+    borderRadius: 14,
+    paddingVertical: 18,
+    alignItems: 'center',
+  },
+  saveTextLarge: { fontSize: 17, fontWeight: '800', color: '#fff' },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(10, 35, 18, 0.52)',

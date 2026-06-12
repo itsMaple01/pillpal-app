@@ -116,8 +116,8 @@ router.post('/check-missed', async (req, res) => {
       UPDATE dose_logs
       SET status = 'missed'
       WHERE status = 'pending'
-        AND scheduled_at < NOW() - INTERVAL '30 minutes'
-        AND scheduled_at::date = CURRENT_DATE
+        AND scheduled_at < NOW() - INTERVAL '2 hours'
+        AND scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
       RETURNING *
     `);
 

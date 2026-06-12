@@ -3,6 +3,8 @@ const axios = require('axios');
 
 async function checkMissedDoses() {
   try {
+    console.log('[cron] Missed dose checker fired (2-hour rule, Asia/Manila context)');
+
     const result = await pool.query(`
       SELECT 
         dl.id as dose_id,
@@ -18,14 +20,19 @@ async function checkMissedDoses() {
       JOIN users u ON dl.patient_uid = u.firebase_uid
       JOIN caretaker_patients cp ON dl.patient_uid = cp.patient_uid
       WHERE dl.status = 'pending'
-        AND dl.scheduled_at < NOW() - INTERVAL '30 minutes'
-        AND dl.scheduled_at::date = CURRENT_DATE
+        AND dl.scheduled_at < NOW() - INTERVAL '2 hours'
+        AND dl.scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
         AND dl.alert_sent = FALSE
     `);
 
-    console.log(`🔍 Checking missed doses: found ${result.rows.length} pending doses`);
+    console.log(`🔍 Checking missed doses: found ${result.rows.length} pending doses past 2-hour window`);
 
     for (const dose of result.rows) {
+      await pool.query(
+        `UPDATE dose_logs SET status = 'missed' WHERE id = $1 AND status = 'pending'`,
+        [dose.dose_id],
+      );
+
       await axios.post('https://pillpal-app.onrender.com/api/alerts', {
         caretaker_uid:   dose.caretaker_uid,
         patient_uid:     dose.patient_uid,

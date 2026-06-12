@@ -2,6 +2,7 @@ const pool = require('./db');
 const { sendPushNotification } = require('./lib/expoPush');
 
 const WINDOW_MINUTES = 5;
+const MANILA_TZ = 'Asia/Manila';
 
 function parseMedicationTime(timeStr) {
   const t = (timeStr || '').trim();
@@ -41,26 +42,71 @@ function parseScheduleTime(timeValue) {
   };
 }
 
-function minutesSinceMidnight(hour, minute) {
-  return hour * 60 + minute;
+function getManilaNow() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: MANILA_TZ,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const get = (type) => parts.find(p => p.type === type)?.value ?? '0';
+  const hour = parseInt(get('hour'), 10) % 24;
+  const minute = parseInt(get('minute'), 10) % 60;
+  const today = `${get('year')}-${get('month')}-${get('day')}`;
+
+  return {
+    nowMinutes: hour * 60 + minute,
+    today,
+    label: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+  };
 }
 
-function isDueWithinWindow(targetMinutes, nowMinutes, window = WINDOW_MINUTES) {
-  let diff = targetMinutes - nowMinutes;
-  if (diff < 0) diff += 24 * 60;
+function isScheduledWithinNextWindow(scheduledMinutes, nowMinutes, window = WINDOW_MINUTES) {
+  const diff = scheduledMinutes - nowMinutes;
+  if (diff < 0) return false;
   return diff >= 0 && diff < window;
 }
 
-async function alreadySentToday(medicationId) {
+async function alreadySentToday(medicationId, patientUid, today) {
   const sent = await pool.query(
     `SELECT 1 FROM medication_push_log
-     WHERE medication_id = $1 AND push_date = CURRENT_DATE AND push_type = 'scheduled'`,
-    [medicationId],
+     WHERE medication_id = $1 AND patient_uid = $2
+       AND push_date = $3::date AND push_type = 'scheduled'`,
+    [medicationId, patientUid, today],
   );
   return sent.rowCount > 0;
 }
 
-async function sendPushAndLog(row, body) {
+async function doseAlreadyResolved(medicationId, patientUid, today) {
+  const result = await pool.query(
+    `SELECT 1 FROM dose_logs dl
+     JOIN schedules s ON s.id = dl.schedule_id
+     WHERE s.medication_id = $1
+       AND dl.patient_uid = $2
+       AND dl.scheduled_at::date = $3::date
+       AND dl.status IN ('taken', 'missed')
+     LIMIT 1`,
+    [medicationId, patientUid, today],
+  );
+  return result.rowCount > 0;
+}
+
+async function medicationTakenToday(medicationId, patientUid) {
+  const result = await pool.query(
+    `SELECT 1 FROM medications
+     WHERE id = $1 AND patient_uid = $2
+       AND taken = TRUE AND last_taken_at = CURRENT_DATE
+     LIMIT 1`,
+    [medicationId, patientUid],
+  );
+  return result.rowCount > 0;
+}
+
+async function sendPushAndLog(row, body, today) {
   if (!row.expo_push_token) {
     console.warn(`⚠️ No FCM token for patient ${row.patient_uid}`);
     return false;
@@ -80,10 +126,10 @@ async function sendPushAndLog(row, body) {
     );
 
     await pool.query(
-      `INSERT INTO medication_push_log (medication_id, patient_uid, push_type)
-       VALUES ($1, $2, 'scheduled')
+      `INSERT INTO medication_push_log (medication_id, patient_uid, push_type, push_date)
+       VALUES ($1, $2, 'scheduled', $3::date)
        ON CONFLICT (medication_id, push_date, push_type) DO NOTHING`,
-      [row.medication_id, row.patient_uid],
+      [row.medication_id, row.patient_uid, today],
     );
     console.log(`📲 Scheduled FCM push sent: ${row.medication_name} → ${row.patient_uid}`);
     return true;
@@ -95,9 +141,13 @@ async function sendPushAndLog(row, body) {
 
 async function sendDueMedicationReminders() {
   try {
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const manila = getManilaNow();
+    console.log(
+      `[cron] Medication reminder pusher fired — Manila ${manila.today} ${manila.label} (UTC+8)`,
+    );
+
     let sentCount = 0;
+    let skippedCount = 0;
 
     const scheduleResult = await pool.query(`
       SELECT s.id AS schedule_id,
@@ -105,31 +155,46 @@ async function sendDueMedicationReminders() {
              s.scheduled_time,
              s.patient_uid,
              m.name AS medication_name,
-             u.expo_push_token,
-             COALESCE(ip.preferred_lead_minutes, 5) AS lead_minutes
+             u.expo_push_token
       FROM schedules s
       JOIN medications m ON m.id = s.medication_id
       JOIN users u ON u.firebase_uid = s.patient_uid
-      LEFT JOIN intelligence_profiles ip ON ip.firebase_uid = s.patient_uid
       WHERE COALESCE(m.suspended, FALSE) = FALSE
         AND COALESCE(m.notify_enabled, TRUE) = TRUE
         AND u.expo_push_token IS NOT NULL
     `);
 
+    console.log(`[cron] Found ${scheduleResult.rows.length} schedule row(s) to evaluate`);
+
     for (const row of scheduleResult.rows) {
       const parsed = parseScheduleTime(row.scheduled_time);
-      if (!parsed) continue;
+      if (!parsed) {
+        skippedCount += 1;
+        continue;
+      }
 
-      let targetMinutes = minutesSinceMidnight(parsed.hour, parsed.minute) - row.lead_minutes;
-      while (targetMinutes < 0) targetMinutes += 24 * 60;
-      targetMinutes %= 24 * 60;
+      const scheduledMinutes = parsed.hour * 60 + parsed.minute;
+      if (!isScheduledWithinNextWindow(scheduledMinutes, manila.nowMinutes)) {
+        skippedCount += 1;
+        continue;
+      }
 
-      if (!isDueWithinWindow(targetMinutes, nowMinutes)) continue;
-      if (await alreadySentToday(row.medication_id)) continue;
+      if (await alreadySentToday(row.medication_id, row.patient_uid, manila.today)) {
+        console.log(`[cron] Skip (already pushed): med ${row.medication_id} patient ${row.patient_uid}`);
+        skippedCount += 1;
+        continue;
+      }
+
+      if (await doseAlreadyResolved(row.medication_id, row.patient_uid, manila.today)) {
+        console.log(`[cron] Skip (dose taken/missed): med ${row.medication_id} patient ${row.patient_uid}`);
+        skippedCount += 1;
+        continue;
+      }
 
       const sent = await sendPushAndLog(
         row,
         `Time for ${row.medication_name} · ${parsed.label}`,
+        manila.today,
       );
       if (sent) sentCount += 1;
     }
@@ -140,11 +205,9 @@ async function sendDueMedicationReminders() {
              m.program,
              m.frequency,
              m.patient_uid,
-             u.expo_push_token,
-             COALESCE(ip.preferred_lead_minutes, 5) AS lead_minutes
+             u.expo_push_token
       FROM medications m
       JOIN users u ON u.firebase_uid = m.patient_uid
-      LEFT JOIN intelligence_profiles ip ON ip.firebase_uid = m.patient_uid
       WHERE COALESCE(m.suspended, FALSE) = FALSE
         AND COALESCE(m.notify_enabled, TRUE) = TRUE
         AND u.expo_push_token IS NOT NULL
@@ -153,28 +216,45 @@ async function sendDueMedicationReminders() {
         )
     `);
 
+    console.log(`[cron] Found ${medResult.rows.length} legacy medication row(s) without schedules`);
+
     for (const row of medResult.rows) {
       const timeStr = row.program || row.frequency || '';
       const parsed = parseMedicationTime(timeStr);
-      if (!parsed) continue;
+      if (!parsed) {
+        skippedCount += 1;
+        continue;
+      }
 
-      let targetMinutes = minutesSinceMidnight(parsed.hour, parsed.minute) - row.lead_minutes;
-      while (targetMinutes < 0) targetMinutes += 24 * 60;
-      targetMinutes %= 24 * 60;
+      const scheduledMinutes = parsed.hour * 60 + parsed.minute;
+      if (!isScheduledWithinNextWindow(scheduledMinutes, manila.nowMinutes)) {
+        skippedCount += 1;
+        continue;
+      }
 
-      if (!isDueWithinWindow(targetMinutes, nowMinutes)) continue;
-      if (await alreadySentToday(row.medication_id)) continue;
+      if (await alreadySentToday(row.medication_id, row.patient_uid, manila.today)) {
+        console.log(`[cron] Skip (already pushed): med ${row.medication_id} patient ${row.patient_uid}`);
+        skippedCount += 1;
+        continue;
+      }
+
+      if (await medicationTakenToday(row.medication_id, row.patient_uid)) {
+        console.log(`[cron] Skip (medication taken today): med ${row.medication_id}`);
+        skippedCount += 1;
+        continue;
+      }
 
       const sent = await sendPushAndLog(
         row,
         `Time for ${row.medication_name} · ${parsed.label}`,
+        manila.today,
       );
       if (sent) sentCount += 1;
     }
 
-    if (sentCount > 0) {
-      console.log(`✅ Medication reminder pusher: ${sentCount} notification(s) sent`);
-    }
+    console.log(
+      `[cron] Medication reminder pusher done — sent ${sentCount}, skipped ${skippedCount}`,
+    );
   } catch (err) {
     console.error('❌ Medication reminder pusher error:', err.message);
   }

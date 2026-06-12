@@ -9,15 +9,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
-  sendPatientReminder, saveExpoPushToken, unlinkPatient,
+  sendPatientReminder, unlinkPatient,
 } from '@/api/index';
-import { registerForPushNotificationsAsync } from '@/lib/pushNotifications';
+import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { cachePatients, getCachedPatients } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
 import { useNetworkStatus } from '@/lib/offline/network';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
+import { DOSE_STATUS_COLORS, DOSE_STATUS_ICONS, resolveMedDoseStatus } from '@/lib/doseStatus';
 import { patientMatchesSearch } from '@/utils/patientSearch';
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
@@ -199,18 +200,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     getUser(uid)
       .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
       .catch(() => {});
-    registerForPushNotificationsAsync().then(async token => {
-      Alert.alert('FCM Token Debug', `Token: ${token || 'NULL'}`);
-      if (token) {
-        try {
-          await saveExpoPushToken(uid, token);
-          Alert.alert('Token Saved!', 'Push notifications are now enabled.');
-        } catch (err) {
-          Alert.alert('Save Failed', String(err));
-          console.error('CARETAKER FCM TOKEN SAVE FAILED:', err);
-        }
-      }
-    });
+    registerAndSavePushTokenIfNeeded(uid);
     isTutorialDone('caregiver', uid).then(done => {
       if (!done) {
         setTutorialIdx(0);
@@ -283,7 +273,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         statistics: stats,
       };
 
-      await confirmAndExportCSV(exportData);
+      const exported = await confirmAndExportCSV(exportData);
+      if (!exported) return;
       if (Platform.OS === 'web') {
         window.alert('Data exported successfully!');
       } else {
@@ -825,7 +816,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             {sorted.length === 0 ? (
               <Text style={styles.scheduleSlotEmpty}>No medications scheduled</Text>
             ) : (
-              sorted.map(m => (
+              sorted.map(m => {
+                const doseStatus = resolveMedDoseStatus(m);
+                return (
                 <View key={m.id} style={styles.scheduleListRow}>
                   <View style={styles.scheduleTimePill}>
                     <Text style={styles.scheduleTimePillText} numberOfLines={1}>
@@ -836,13 +829,15 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                     <Text style={styles.scheduleMedLineBold}>{m.name}</Text>
                     <Text style={styles.scheduleMedLineSub}>{m.dosage}</Text>
                   </View>
-                  <AppIcon
-                    name={m.taken ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={18}
-                    color={m.taken ? GREEN : '#ccc'}
-                  />
+                  <View style={styles.scheduleStatusWrap}>
+                    <AppIcon
+                      name={DOSE_STATUS_ICONS[doseStatus] as 'checkmark-circle'}
+                      size={20}
+                      color={DOSE_STATUS_COLORS[doseStatus]}
+                    />
+                  </View>
                 </View>
-              ))
+              );})
             )}
           </View>
         );})
@@ -1677,8 +1672,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     paddingVertical: 10,
+    paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#eef2ee',
+  },
+  scheduleStatusWrap: {
+    width: 28,
+    alignItems: 'center',
+    marginRight: 4,
   },
   scheduleTimePill: {
     borderWidth: 1.5,
@@ -1690,13 +1691,12 @@ const styles = StyleSheet.create({
     width: 78,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
   },
   scheduleTimePillText: { fontSize: 11, fontWeight: '800', color: '#333', textAlign: 'center' },
   scheduleMedLineBold: { fontSize: 14, fontWeight: '800', color: '#222' },
   scheduleMedLineSub: { fontSize: 12, color: '#666', marginTop: 2 },
   screenTitle:           { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
-  schedulePatientCard:   { backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  schedulePatientCard:   { backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#eef2ee', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
   schedulePatientHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   scheduleAvatar:        { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
   scheduleAvatarText:    { fontSize: 14, fontWeight: '800', color: GREEN },
