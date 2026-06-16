@@ -29,10 +29,6 @@ import {
 } from '@/api/index';
 import { subscribePatientMedications } from '@/services/medicationRealtime';
 import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
-import {
-  rescheduleMedicationLocalNotifications,
-  forceRescheduleMedicationLocalNotifications,
-} from '@/lib/localNotifications';
 import { logIntelligenceEvent } from '@/api/index';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -44,7 +40,8 @@ import AppLogo from '@/components/AppLogo';
 import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
 import NotificationSettingsModal from '@/components/NotificationSettingsModal';
-import MedicationInventoryModal from '@/components/MedicationInventoryModal';
+import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
+import DoseStatusBadge from '@/components/DoseStatusBadge';
 import PrivacySecurityModal from '@/components/PrivacySecurityModal';
 import StatTile from '@/components/StatTile';
 import StatisticsScreen from '@/components/StatisticsScreen';
@@ -1037,10 +1034,6 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const online = isConnected && isInternetReachable;
 
   useEffect(() => {
-    rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
-  }, [medications, uid]);
-
-  useEffect(() => {
     registerAndSavePushTokenIfNeeded(uid);
     logIntelligenceEvent({ firebase_uid: uid, event_type: 'opened_app' }).catch(() => {});
   }, [uid]);
@@ -1104,7 +1097,6 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         setMedications(updatedMeds);
         medicationsRef.current = updatedMeds;
         await bumpPatientActivity(uid, 'medication_update');
-        await forceRescheduleMedicationLocalNotifications(updatedMeds, uid);
       } catch (err) {
         console.error(err);
         if (Platform.OS === 'web') window.alert('Could not update medication.');
@@ -1150,7 +1142,6 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       setShowAddModal(false);
       setActiveTab('Home');
       await bumpPatientActivity(uid, 'medication_update');
-      await forceRescheduleMedicationLocalNotifications(medicationsRef.current, uid);
 
       if (Platform.OS === 'web') window.alert(`${med.name} has been added to your reminders.`);
       else Alert.alert('✅ Added', `${med.name} added to your reminders.`);
@@ -1272,7 +1263,6 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       if (med.firestoreId) {
         await updateDoc(doc(db, 'reminders', med.firestoreId), { suspended: pausing });
       }
-      await forceRescheduleMedicationLocalNotifications(nextMeds, uid);
     } catch {
       const reverted = medicationsRef.current.map(m =>
         m.id === med.id ? { ...m, suspended: !pausing } : m,
@@ -1439,11 +1429,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
                 <Text style={styles.scheduleMedName}>{med.name}</Text>
                 <Text style={styles.scheduleMedSub}>{med.dosage} · {med.frequency}</Text>
               </View>
-              <View style={[styles.scheduleBadge, { backgroundColor: med.taken ? GREEN_LIGHT : '#fff3e0' }]}>
-                <Text style={[styles.scheduleBadgeText, { color: med.taken ? GREEN : '#e65100' }]}>
-                  {med.taken ? 'Taken' : 'Pending'}
-                </Text>
-              </View>
+              <DoseStatusBadge med={med} />
             </View>
           ))
         )}
@@ -1672,9 +1658,10 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         onConfirm={confirmDeleteMed}
         deleting={deletingMed}
       />
-      <MedicationInventoryModal
+      <MedicationInventoryScreen
         visible={showInventory}
         uid={uid}
+        patientName={displayName}
         medications={medications}
         focusMedId={inventoryMedId}
         onClose={() => { setShowInventory(false); setInventoryMedId(null); }}
@@ -1730,7 +1717,6 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         onClose={() => setShowNotificationSettings(false)}
         onPreferenceChange={enabled => {
           if (enabled) {
-            rescheduleMedicationLocalNotifications(medications, uid).catch(() => {});
           }
         }}
       />

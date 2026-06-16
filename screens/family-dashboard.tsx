@@ -13,7 +13,8 @@ import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
 import { mapMedicationRows } from '@/services/medicationRealtime';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
-import { DOSE_STATUS_COLORS, DOSE_STATUS_ICONS, resolveMedDoseStatus } from '@/lib/doseStatus';
+import DoseStatusBadge from '@/components/DoseStatusBadge';
+import LinkedPatientsScreen from '@/components/LinkedPatientsScreen';
 import LinkPatientModal from '@/components/Linkpatientmodal';
 import AppHeader from '@/components/AppHeader';
 import AppIcon from '@/components/AppIcon';
@@ -25,7 +26,7 @@ import SwitchModeModal from '@/components/SwitchModeModal';
 import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
 import StatisticsScreen from '@/components/StatisticsScreen';
-import MedicationInventoryModal from '@/components/MedicationInventoryModal';
+import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -62,6 +63,7 @@ interface LinkedPerson {
   email?: string;
   age?: number;
   missed_doses?: number;
+  compliance?: number;
 }
 
 export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: Props) {
@@ -82,6 +84,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [showSwitchMode, setShowSwitchMode] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(new Date());
   const [showStatistics, setShowStatistics] = useState(false);
+  const [showLinkedPatients, setShowLinkedPatients] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
   const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
@@ -98,14 +101,13 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       const offlinePatients = offlineData ? JSON.parse(offlineData) : [];
       
       // Combine online and offline patients
-      const allPeople = [...list.slice(0, 5), ...offlinePatients];
+      const allPeople = [...list, ...offlinePatients];
       setPeople(allPeople);
       
       const medMap: Record<string, PatientMedication[]> = {};
       
-      // Load medications for online patients
       await Promise.all(
-        list.slice(0, 5).map(async (p: LinkedPerson) => {
+        list.map(async (p: LinkedPerson) => {
           try {
             const m = await getMedications(p.firebase_uid);
             const rows = Array.isArray(m.data) ? m.data : [];
@@ -363,7 +365,6 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
               ) : (
                 sorted.map(m => {
                   const bucket = medicationTimeBucket(m.time);
-                  const doseStatus = resolveMedDoseStatus(m);
                   return (
                     <View key={m.id} style={styles.scheduleMedRow}>
                       <View style={styles.scheduleTimeBox}>
@@ -377,13 +378,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
                           {m.dosage}{bucket ? ` · ${bucket}` : ''}
                         </Text>
                       </View>
-                      <View style={styles.scheduleStatusWrap}>
-                        <AppIcon
-                          name={DOSE_STATUS_ICONS[doseStatus] as 'checkmark-circle'}
-                          size={20}
-                          color={DOSE_STATUS_COLORS[doseStatus]}
-                        />
-                      </View>
+                      <DoseStatusBadge med={m} />
                     </View>
                   );
                 })
@@ -446,63 +441,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const ManageScreen = () => (
     <ScrollView contentContainerStyle={styles.scrollPad}>
-      <Text style={styles.sectionTitle}>Linked patients</Text>
-      {people.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptySub}>No family linked yet. Use Link below to connect.</Text>
-        </View>
-      ) : (
-        <View style={styles.linkedPatientsWrap}>
-          {people.map(person => (
-            <View key={person.firebase_uid} style={styles.patientManageCard}>
-              <View style={styles.patientManageInfo}>
-                <View style={styles.patientManageAvatar}>
-                  <Text style={styles.patientManageAvatarText}>
-                    {(person.full_name ?? person.email ?? 'P').charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.patientManageName}>{person.full_name ?? person.email}</Text>
-                  <Text style={styles.patientManageSub}>
-                    Age {person.age ?? '—'} · {(medsByPerson[person.firebase_uid] || []).filter(m => !m.suspended).length} meds
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={styles.patientDeleteBtn}
-                onPress={() => {
-                  Alert.alert(
-                    'Remove Patient',
-                    `Remove ${person.full_name ?? person.email} from your linked list?`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Remove',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            await unlinkPatient({
-                              caretaker_uid: uid,
-                              patient_uid: person.firebase_uid,
-                            });
-                            await loadPeople();
-                            Alert.alert('Success', 'Patient removed successfully');
-                          } catch (err) {
-                            console.error('Family remove patient failed:', err);
-                            Alert.alert('Error', 'Could not remove patient');
-                          }
-                        },
-                      },
-                    ],
-                  );
-                }}
-              >
-                <AppIcon name="trash-outline" size={18} color="#c62828" />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
+      <MenuRow
+        icon="people-outline"
+        label="Linked patients"
+        sub={`${people.length} family member${people.length !== 1 ? 's' : ''} linked`}
+        onPress={() => setShowLinkedPatients(true)}
+      />
 
       <Text style={styles.sectionTitle}>Account</Text>
       <MenuRow
@@ -535,6 +479,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
             Alert.alert('No patients', 'Link a family member first to manage their medication inventory.');
           }
         }}
+      />
+      <MenuRow
+        icon="hardware-chip-outline"
+        label="Connect to Pillbox"
+        sub="Link a smart pillbox device (coming soon)"
+        showChevron={false}
       />
       <MenuRow
         icon="bar-chart-outline"
@@ -665,11 +615,51 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           />
         </View>
       </Modal>
-      <MedicationInventoryModal
+      <MedicationInventoryScreen
         visible={showInventory}
         uid={selectedPatientForInventory || ''}
+        patientName={people.find(p => p.firebase_uid === selectedPatientForInventory)?.full_name}
         medications={selectedPatientForInventory ? medsByPerson[selectedPatientForInventory] || [] : []}
-        onClose={() => setShowInventory(false)}
+        onClose={() => { setShowInventory(false); setSelectedPatientForInventory(null); }}
+      />
+      <LinkedPatientsScreen
+        visible={showLinkedPatients}
+        title="Linked family members"
+        patients={people.map(p => ({
+          firebase_uid: p.firebase_uid,
+          full_name: p.full_name,
+          email: p.email,
+          age: p.age,
+          missed_doses: p.missed_doses,
+          compliance: p.compliance,
+        }))}
+        onClose={() => setShowLinkedPatients(false)}
+        onViewInventory={(patientUid) => {
+          setShowLinkedPatients(false);
+          setSelectedPatientForInventory(patientUid);
+          setShowInventory(true);
+        }}
+        onRemove={(p) => {
+          Alert.alert(
+            'Remove family member',
+            `Remove ${p.full_name || p.email} from your linked list?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: async () => {
+                  try {
+                    await unlinkPatient({ caretaker_uid: uid, patient_uid: p.firebase_uid });
+                    await loadPeople();
+                  } catch {
+                    Alert.alert('Error', 'Could not remove patient');
+                  }
+                },
+              },
+            ],
+          );
+        }}
       />
       <AddOfflinePatientModal
         visible={showOfflinePatientModal}

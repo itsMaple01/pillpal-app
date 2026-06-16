@@ -59,6 +59,23 @@ export const DOSE_STATUS_ICONS: Record<DoseDisplayStatus, string> = {
   pending: 'ellipse-outline',
 };
 
+export function getDoseStatusLabel(status: DoseDisplayStatus): string {
+  switch (status) {
+    case 'taken':
+      return 'Taken';
+    case 'late':
+      return 'Late';
+    case 'missed':
+      return 'Missed';
+    case 'upcoming':
+      return 'Pending';
+    case 'pending':
+      return 'Pending';
+    default:
+      return 'Pending';
+  }
+}
+
 export function resolveMedDoseStatus(med: {
   time: string;
   taken: boolean;

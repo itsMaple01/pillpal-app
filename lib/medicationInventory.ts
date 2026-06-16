@@ -50,8 +50,8 @@ export async function syncInventoryWithMeds(
 
   const merged: InventoryItem[] = meds.map(m => {
     const prev = byId.get(m.id);
-    const quantity = m.currentStock ?? prev?.quantity ?? defaultQuantity(m.dosage);
-    const lowThreshold = m.refillThreshold ?? prev?.lowThreshold ?? 5;
+    const quantity = prev?.quantity ?? m.currentStock ?? defaultQuantity(m.dosage);
+    const lowThreshold = prev?.lowThreshold ?? m.refillThreshold ?? 5;
     if (prev) {
       return { ...prev, name: m.name, dosage: m.dosage, quantity, lowThreshold };
     }

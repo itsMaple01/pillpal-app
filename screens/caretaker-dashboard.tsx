@@ -1,10 +1,10 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions, TextInput,
-  ActivityIndicator, Alert, Platform, Modal,
+  ActivityIndicator, Alert, Platform, Modal, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
@@ -18,7 +18,8 @@ import { cachePatients, getCachedPatients } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
 import { useNetworkStatus } from '@/lib/offline/network';
 import { medicationTimeBucket, parseMedicationTime } from '@/utils/medicationTimeBucket';
-import { DOSE_STATUS_COLORS, DOSE_STATUS_ICONS, resolveMedDoseStatus } from '@/lib/doseStatus';
+import DoseStatusBadge from '@/components/DoseStatusBadge';
+import LinkedPatientsScreen from '@/components/LinkedPatientsScreen';
 import { patientMatchesSearch } from '@/utils/patientSearch';
 import type { PatientMedication } from '@/types/medication';
 import MedicationsScreen from '@/components/MedicationsScreen';
@@ -35,7 +36,7 @@ import LogoutModal from '@/components/LogoutModal';
 import AppLogo from '@/components/AppLogo';
 import { SkeletonPatientRow } from '@/components/Skeleton';
 import StatisticsScreen from '@/components/StatisticsScreen';
-import MedicationInventoryModal from '@/components/MedicationInventoryModal';
+import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
@@ -127,6 +128,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [showStatistics,    setShowStatistics]     = useState(false);
   const [showInventory,     setShowInventory]      = useState(false);
   const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
+  const [showLinkedPatients, setShowLinkedPatients] = useState(false);
+  const patientsScrollY = useRef(new Animated.Value(0)).current;
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
   const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
@@ -390,7 +393,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const stats = {
     total:     patients.length,
     active:    patients.filter(p => getPatientStatus(p) === 'Active').length,
-    missed:    patients.filter(p => (p.missed_doses ?? 0) > 0).length,
+    missed:    patients.reduce((sum, p) => sum + Number(p.missed_doses ?? 0), 0),
     attention: patients.filter(p => getPatientStatus(p) === 'Needs Attention').length,
   };
 
@@ -477,7 +480,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               <View style={styles.metaCol}>
                 <View style={[styles.compliancePill, { backgroundColor: (patient.compliance ?? 0) >= 80 ? GREEN_LIGHT : (patient.compliance ?? 0) >= 60 ? '#fff3e0' : '#fce4ec' }]}>
                   <Text style={[styles.complianceText, { color: (patient.compliance ?? 0) >= 80 ? GREEN : (patient.compliance ?? 0) >= 60 ? '#e65100' : '#c62828' }]}>
-                    {patient.compliance ?? 0}%
+                    {Math.round(Number(patient.compliance ?? 0))}%
                   </Text>
                 </View>
               </View>
@@ -499,7 +502,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             <View style={styles.expandedStats}>
               {[
                 { num: patient.missed_doses ?? 0,     label: 'Missed Doses' },
-                { num: `${patient.compliance ?? 0}%`, label: 'Compliance'   },
+                { num: `${Math.round(Number(patient.compliance ?? 0))}%`, label: 'Compliance'   },
                 { num: patient.age ?? '—',             label: 'Age'          },
               ].map((s, i) => (
                 <View key={i} style={styles.expandedStat}>
@@ -527,6 +530,16 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             <TouchableOpacity
               style={[styles.actionBtnOutline, { marginTop: 8 }]}
               onPress={() => {
+                setSelectedPatientForInventory(patient.firebase_uid);
+                setShowInventory(true);
+              }}
+            >
+              <AppIcon name="cube-outline" size={18} color={GREEN} />
+              <Text style={styles.actionBtnOutlineText}>View inventory</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtnOutline, { marginTop: 8 }]}
+              onPress={() => {
                 setEditPatient(patient);
                 setEditName((patient.full_name || '').trim());
                 setEditAge(patient.age != null ? String(patient.age) : '');
@@ -549,14 +562,43 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     );
   };
 
-  const renderPatientsTab = () => (
-    <View style={styles.mainContent}>
-      <View style={{ padding: 16, gap: 10 }}>
+  const renderPatientsTab = () => {
+    const statsScale = patientsScrollY.interpolate({
+      inputRange: [0, 80],
+      outputRange: [1, 0.82],
+      extrapolate: 'clamp',
+    });
+    const statsOpacity = patientsScrollY.interpolate({
+      inputRange: [0, 60],
+      outputRange: [1, 0.9],
+      extrapolate: 'clamp',
+    });
+
+    return (
+    <Animated.ScrollView
+      style={styles.mainContent}
+      showsVerticalScrollIndicator={false}
+      scrollEventThrottle={16}
+      onScroll={Animated.event(
+        [{ nativeEvent: { contentOffset: { y: patientsScrollY } } }],
+        { useNativeDriver: true },
+      )}
+      contentContainerStyle={{ paddingBottom: 32 }}
+    >
+      <Animated.View
+        style={{
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          gap: 10,
+          transform: [{ scale: statsScale }],
+          opacity: statsOpacity,
+        }}
+      >
         <View style={styles.statsRow}>
-          <StatTile icon="people-outline" value={stats.total} label="Total Patients" accent={GREEN} />
-          <StatTile icon="checkmark-circle-outline" value={stats.active} label="Active" accent={GREEN} />
-          <StatTile icon="alert-circle-outline" value={stats.missed} label="Missed Doses" accent="#e65100" iconBg="#fff3e0" />
-          <StatTile icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
+          <StatTile compact icon="people-outline" value={stats.total} label="Total Patients" accent={GREEN} />
+          <StatTile compact icon="checkmark-circle-outline" value={stats.active} label="Active" accent={GREEN} />
+          <StatTile compact icon="alert-circle-outline" value={stats.missed} label="Missed Doses" accent="#e65100" iconBg="#fff3e0" />
+          <StatTile compact icon="warning-outline" value={stats.attention} label="Needs Attention" accent="#c62828" iconBg="#fce4ec" />
         </View>
 
         <View style={styles.searchFilterContainer}>
@@ -575,7 +617,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         </View>
 
         {linkRequests.length > 0 && (
-          <View style={{ paddingHorizontal: 16, marginBottom: 8, gap: 8 }}>
+          <View style={{ gap: 8 }}>
             <Text style={styles.screenTitle}>Pending link requests</Text>
             {linkRequests.map((lr: any) => (
               <View key={lr.id} style={styles.requestCard}>
@@ -589,7 +631,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                         await acceptLinkRequest(lr.id, uid);
                         await fetchPatients(true);
                         await fetchLinkRequests();
-                      } catch (e) {
+                      } catch {
                         showAlert('Error', 'Could not accept.');
                       }
                     }}
@@ -602,7 +644,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                       try {
                         await rejectLinkRequest(lr.id, { caretaker_uid: uid });
                         await fetchLinkRequests();
-                      } catch (e) {
+                      } catch {
                         showAlert('Error', 'Could not decline.');
                       }
                     }}
@@ -623,30 +665,29 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             <Text style={[styles.tableHeaderText, styles.colMeta]}>Status</Text>
           </View>
         )}
-      </View>
+      </Animated.View>
 
       {loading ? (
         <View style={styles.emptyState}>
           <ActivityIndicator size="large" color={GREEN} />
           <Text style={[styles.emptyText, { marginTop: 12 }]}>Loading patients...</Text>
         </View>
+      ) : filtered.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>👥</Text>
+          <Text style={styles.emptyText}>No patients linked yet</Text>
+          <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
+            Ask patients to link their account to yours
+          </Text>
+        </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}>
-          {filtered.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>👥</Text>
-              <Text style={styles.emptyText}>No patients linked yet</Text>
-              <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
-                Ask patients to link their account to yours
-              </Text>
-            </View>
-          ) : (
-            filtered.map(p => <PatientRow key={p.firebase_uid} patient={p} />)
-          )}
-        </ScrollView>
+        <View style={{ paddingHorizontal: 16, gap: 0 }}>
+          {filtered.map(p => <PatientRow key={p.firebase_uid} patient={p} />)}
+        </View>
       )}
-    </View>
-  );
+    </Animated.ScrollView>
+    );
+  };
 
   // ── MEDICATIONS SCREEN ──
   const MedicationsTab = () => {
@@ -816,9 +857,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             {sorted.length === 0 ? (
               <Text style={styles.scheduleSlotEmpty}>No medications scheduled</Text>
             ) : (
-              sorted.map(m => {
-                const doseStatus = resolveMedDoseStatus(m);
-                return (
+              sorted.map(m => (
                 <View key={m.id} style={styles.scheduleListRow}>
                   <View style={styles.scheduleTimePill}>
                     <Text style={styles.scheduleTimePillText} numberOfLines={1}>
@@ -829,15 +868,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                     <Text style={styles.scheduleMedLineBold}>{m.name}</Text>
                     <Text style={styles.scheduleMedLineSub}>{m.dosage}</Text>
                   </View>
-                  <View style={styles.scheduleStatusWrap}>
-                    <AppIcon
-                      name={DOSE_STATUS_ICONS[doseStatus] as 'checkmark-circle'}
-                      size={20}
-                      color={DOSE_STATUS_COLORS[doseStatus]}
-                    />
-                  </View>
+                  <DoseStatusBadge med={m} />
                 </View>
-              );})
+              ))
             )}
           </View>
         );})
@@ -928,66 +961,10 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       </View>
 
       <Text style={styles.manageSection}>Overview</Text>
-      <MenuRow icon="people-outline" label="Linked patients" sub={`${patients.length} patient${patients.length !== 1 ? 's' : ''}`} showChevron={false} />
+      <MenuRow icon="people-outline" label="Linked patients" sub={`${patients.length} linked`} onPress={() => setShowLinkedPatients(true)} />
       <MenuRow icon="warning-outline" iconColor="#c62828" iconBg="#fce4ec" label="Needs attention" sub={`${stats.attention} patient${stats.attention !== 1 ? 's' : ''}`} showChevron={false} />
       <MenuRow icon="checkmark-circle-outline" label="Active patients" sub={`${stats.active} patient${stats.active !== 1 ? 's' : ''}`} showChevron={false} />
 
-      <Text style={styles.manageSection}>Linked Patients</Text>
-      {patients.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>👥</Text>
-          <Text style={styles.emptyText}>No patients linked yet</Text>
-        </View>
-      ) : (
-        patients.map(p => (
-          <View key={p.firebase_uid} style={styles.patientManageCard}>
-            <View style={styles.patientManageInfo}>
-              <View style={styles.patientManageAvatar}>
-                <Text style={styles.patientManageAvatarText}>
-                  {(p.full_name || p.email || 'P').charAt(0).toUpperCase()}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.patientManageName}>{p.full_name || p.email}</Text>
-                <Text style={styles.patientManageSub}>
-                  {p.missed_doses || 0} missed doses · {Math.round(p.compliance || 0)}% compliance
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity
-              style={styles.patientDeleteBtn}
-              onPress={() => {
-                Alert.alert(
-                  'Remove Patient',
-                  `Are you sure you want to remove ${p.full_name || p.email} from your care?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Remove',
-                      style: 'destructive',
-                      onPress: async () => {
-                        try {
-                          await unlinkPatient({
-                            caretaker_uid: uid,
-                            patient_uid: p.firebase_uid,
-                          });
-                          await fetchPatients(true);
-                          showAlert('Success', 'Patient removed successfully');
-                        } catch (err) {
-                          console.error('Remove patient failed:', err);
-                          showAlert('Error', 'Could not remove patient');
-                        }
-                      },
-                    },
-                  ]
-                );
-              }}
-            >
-              <AppIcon name="trash-outline" size={18} color="#c62828" />
-            </TouchableOpacity>
-          </View>
-        ))
-      )}
       <MenuRow
         icon="medical-outline"
         label="Medications"
@@ -1029,6 +1006,12 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             showAlert('No patients', 'Link a patient first to manage their medication inventory.');
           }
         }}
+      />
+      <MenuRow
+        icon="hardware-chip-outline"
+        label="Connect to Pillbox"
+        sub="Link a smart pillbox device (coming soon)"
+        showChevron={false}
       />
       <MenuRow
         icon="bar-chart-outline"
@@ -1355,11 +1338,43 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         />
       </View>
     </Modal>
-    <MedicationInventoryModal
+    <MedicationInventoryScreen
       visible={showInventory}
       uid={selectedPatientForInventory || ''}
+      patientName={patients.find(p => p.firebase_uid === selectedPatientForInventory)?.full_name}
       medications={selectedPatientForInventory ? scheduleByPatient[selectedPatientForInventory] || [] : []}
-      onClose={() => setShowInventory(false)}
+      onClose={() => { setShowInventory(false); setSelectedPatientForInventory(null); }}
+    />
+    <LinkedPatientsScreen
+      visible={showLinkedPatients}
+      patients={patients}
+      onClose={() => setShowLinkedPatients(false)}
+      onViewInventory={(patientUid) => {
+        setShowLinkedPatients(false);
+        setSelectedPatientForInventory(patientUid);
+        setShowInventory(true);
+      }}
+      onRemove={(p) => {
+        Alert.alert(
+          'Remove Patient',
+          `Remove ${p.full_name || p.email} from your care?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Remove',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await unlinkPatient({ caretaker_uid: uid, patient_uid: p.firebase_uid });
+                  await fetchPatients(true);
+                } catch {
+                  showAlert('Error', 'Could not remove patient');
+                }
+              },
+            },
+          ],
+        );
+      }}
     />
     <AddOfflinePatientModal
       visible={showOfflinePatientModal}
