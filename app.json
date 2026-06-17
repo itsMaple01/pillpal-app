@@ -33,7 +33,8 @@
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "CAMERA"
       ]
     },
     "web": {
@@ -42,7 +43,13 @@
     "plugins": [
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow GabayRa to scan the QR code on your smart pillbox."
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "https://pillpal-app.onrender.com",

@@ -37,6 +37,7 @@ import AppLogo from '@/components/AppLogo';
 import { SkeletonPatientRow } from '@/components/Skeleton';
 import StatisticsScreen from '@/components/StatisticsScreen';
 import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
+import PillboxScreen from '@/screens/PillboxScreen';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
@@ -128,6 +129,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [showStatistics,    setShowStatistics]     = useState(false);
   const [showInventory,     setShowInventory]      = useState(false);
   const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
+  const [showPillbox,       setShowPillbox]        = useState(false);
+  const [selectedPatientForPillbox, setSelectedPatientForPillbox] = useState<string | null>(null);
   const [showLinkedPatients, setShowLinkedPatients] = useState(false);
   const patientsScrollY = useRef(new Animated.Value(0)).current;
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
@@ -563,14 +566,9 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   };
 
   const renderPatientsTab = () => {
-    const statsScale = patientsScrollY.interpolate({
+    const statsTranslateY = patientsScrollY.interpolate({
       inputRange: [0, 80],
-      outputRange: [1, 0.82],
-      extrapolate: 'clamp',
-    });
-    const statsOpacity = patientsScrollY.interpolate({
-      inputRange: [0, 60],
-      outputRange: [1, 0.9],
+      outputRange: [0, -24],
       extrapolate: 'clamp',
     });
 
@@ -590,8 +588,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           paddingHorizontal: 16,
           paddingTop: 16,
           gap: 10,
-          transform: [{ scale: statsScale }],
-          opacity: statsOpacity,
+          transform: [{ translateY: statsTranslateY }],
         }}
       >
         <View style={styles.statsRow}>
@@ -1010,8 +1007,15 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       <MenuRow
         icon="hardware-chip-outline"
         label="Connect to Pillbox"
-        sub="Link a smart pillbox device (coming soon)"
-        showChevron={false}
+        sub="Link a smart pillbox device"
+        onPress={() => {
+          if (patients.length > 0) {
+            setSelectedPatientForPillbox(patients[0].firebase_uid);
+            setShowPillbox(true);
+          } else {
+            showAlert('No patients', 'Link a patient first to connect a pillbox.');
+          }
+        }}
       />
       <MenuRow
         icon="bar-chart-outline"
@@ -1344,6 +1348,12 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       patientName={patients.find(p => p.firebase_uid === selectedPatientForInventory)?.full_name}
       medications={selectedPatientForInventory ? scheduleByPatient[selectedPatientForInventory] || [] : []}
       onClose={() => { setShowInventory(false); setSelectedPatientForInventory(null); }}
+    />
+    <PillboxScreen
+      visible={showPillbox}
+      patientUid={selectedPatientForPillbox || ''}
+      patientName={patients.find(p => p.firebase_uid === selectedPatientForPillbox)?.full_name}
+      onClose={() => { setShowPillbox(false); setSelectedPatientForPillbox(null); }}
     />
     <LinkedPatientsScreen
       visible={showLinkedPatients}

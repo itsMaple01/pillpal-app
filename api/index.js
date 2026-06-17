@@ -39,6 +39,7 @@ app.use('/api/alerts',       require('./routes/alerts'));
 app.use('/api/reminders',    require('./routes/reminders'));
 app.use('/api/intelligence', require('./routes/intelligence'));
 app.use('/api/ai',           require('./routes/aiPredict'));
+app.use('/api/pillbox',      require('./routes/pillbox'));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {

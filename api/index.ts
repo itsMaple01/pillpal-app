@@ -147,3 +147,18 @@ export const sendPatientReminder = (body: {
   patient_uid: string;
   message?: string;
 }) => api.post('/api/reminders/send', body);
+
+export const connectPillbox = (body: {
+  patient_uid: string;
+  device_id: string;
+  token: string;
+}) => api.post('/api/pillbox/connect', body);
+
+export const getPillboxStatus = (patient_uid: string) =>
+  api.get(`/api/pillbox/status/${patient_uid}`);
+
+export const disconnectPillbox = (patient_uid: string) =>
+  api.post('/api/pillbox/disconnect', { patient_uid });
+
+export const getPillboxAdherence = (patient_uid: string) =>
+  api.get(`/api/pillbox/adherence/${patient_uid}`);

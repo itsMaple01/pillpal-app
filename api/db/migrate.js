@@ -74,6 +74,23 @@ async function runMigrations() {
       updated_at TIMESTAMP DEFAULT NOW()
     )`);
 
+  await run('dose_logs.alert_sent', `ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS alert_sent BOOLEAN DEFAULT FALSE`);
+
+  await run('pillbox_devices', `
+    CREATE TABLE IF NOT EXISTS pillbox_devices (
+      id SERIAL PRIMARY KEY,
+      patient_uid VARCHAR(128) NOT NULL,
+      device_id VARCHAR(128) NOT NULL,
+      token VARCHAR(255) NOT NULL,
+      battery_level INTEGER DEFAULT 100,
+      last_dose_time TIMESTAMP,
+      connected_at TIMESTAMP DEFAULT NOW(),
+      is_active BOOLEAN DEFAULT TRUE
+    )`);
+  await run('pillbox_devices.unique_active_patient', `
+    CREATE UNIQUE INDEX IF NOT EXISTS pillbox_devices_active_patient
+    ON pillbox_devices (patient_uid) WHERE is_active = TRUE`);
+
   console.log('[migrate] complete');
 }
 

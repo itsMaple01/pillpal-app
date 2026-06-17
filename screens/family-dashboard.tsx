@@ -27,6 +27,7 @@ import WeekCalendarStrip from '@/components/WeekCalendarStrip';
 import LogoutModal from '@/components/LogoutModal';
 import StatisticsScreen from '@/components/StatisticsScreen';
 import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
+import PillboxScreen from '@/screens/PillboxScreen';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -87,6 +88,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [showLinkedPatients, setShowLinkedPatients] = useState(false);
   const [showInventory, setShowInventory] = useState(false);
   const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
+  const [showPillbox, setShowPillbox] = useState(false);
+  const [selectedPatientForPillbox, setSelectedPatientForPillbox] = useState<string | null>(null);
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
   const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
@@ -483,8 +486,15 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       <MenuRow
         icon="hardware-chip-outline"
         label="Connect to Pillbox"
-        sub="Link a smart pillbox device (coming soon)"
-        showChevron={false}
+        sub="Link a smart pillbox device"
+        onPress={() => {
+          if (people.length > 0) {
+            setSelectedPatientForPillbox(people[0].firebase_uid);
+            setShowPillbox(true);
+          } else {
+            Alert.alert('No patients', 'Link a family member first to connect a pillbox.');
+          }
+        }}
       />
       <MenuRow
         icon="bar-chart-outline"
@@ -621,6 +631,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         patientName={people.find(p => p.firebase_uid === selectedPatientForInventory)?.full_name}
         medications={selectedPatientForInventory ? medsByPerson[selectedPatientForInventory] || [] : []}
         onClose={() => { setShowInventory(false); setSelectedPatientForInventory(null); }}
+      />
+      <PillboxScreen
+        visible={showPillbox}
+        patientUid={selectedPatientForPillbox || ''}
+        patientName={people.find(p => p.firebase_uid === selectedPatientForPillbox)?.full_name}
+        onClose={() => { setShowPillbox(false); setSelectedPatientForPillbox(null); }}
       />
       <LinkedPatientsScreen
         visible={showLinkedPatients}

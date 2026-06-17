@@ -4,8 +4,9 @@
 
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, Switch, Pressable,
+  ScrollView, Switch, Pressable, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
+import { RefObject } from 'react';
 import AppIcon from '@/components/AppIcon';
 import { theme } from '@/lib/theme';
 import { TEXT } from '@/lib/typography';
@@ -36,6 +37,8 @@ interface Props {
   patientName?:   string;
   readOnly?:      boolean;
   showAlertsEntry?: boolean;
+  scrollRef?:      RefObject<ScrollView | null>;
+  onScrollOffset?: (y: number) => void;
 }
 
 export default function MedicationsScreen({
@@ -51,6 +54,8 @@ export default function MedicationsScreen({
   patientName,
   readOnly = false,
   showAlertsEntry = false,
+  scrollRef,
+  onScrollOffset,
 }: Props) {
   const pending = medications.filter(m => !m.taken && !m.suspended && !m.missed).length;
   const taken   = medications.filter(m =>  m.taken && !m.suspended).length;
@@ -59,9 +64,14 @@ export default function MedicationsScreen({
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={s.screen}
       contentContainerStyle={s.content}
       showsVerticalScrollIndicator={false}
+      scrollEventThrottle={16}
+      onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+        onScrollOffset?.(e.nativeEvent.contentOffset.y);
+      }}
     >
       <View style={s.statsRow}>
         <View style={s.statCard}>

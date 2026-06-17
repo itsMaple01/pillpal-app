@@ -1,9 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
+const { syncTodayDoseLogsForCaretaker } = require('../lib/doseSync');
 
 router.get('/:caretaker_uid', async (req, res) => {
   try {
+    await syncTodayDoseLogsForCaretaker(req.params.caretaker_uid);
+
     const result = await pool.query(`
       SELECT u.*, cp.status as link_status,
         COALESCE(missed_today.missed_count, 0) as missed_doses,

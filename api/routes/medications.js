@@ -122,6 +122,22 @@ router.patch('/:id/taken', async (req, res) => {
 
     if (taken) {
       try {
+        await pool.query(
+          `UPDATE dose_logs dl
+           SET status = 'taken', taken_at = NOW()
+           FROM schedules s
+           WHERE s.id = dl.schedule_id
+             AND s.medication_id = $1
+             AND dl.patient_uid = $2
+             AND dl.scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+             AND dl.status IN ('pending', 'missed')`,
+          [row.id, row.patient_uid],
+        );
+      } catch (doseErr) {
+        console.warn('dose_log taken update failed:', doseErr.message);
+      }
+
+      try {
         const patientRes = await pool.query(
           'SELECT full_name FROM users WHERE firebase_uid = $1',
           [row.patient_uid],

@@ -15,7 +15,7 @@ import {
 } from '@/lib/tutorial';
 import { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react';
 import { db } from '@/lib/firebase';
 import {
   collection, addDoc, deleteDoc,
@@ -45,6 +45,7 @@ import DoseStatusBadge from '@/components/DoseStatusBadge';
 import PrivacySecurityModal from '@/components/PrivacySecurityModal';
 import StatTile from '@/components/StatTile';
 import StatisticsScreen from '@/components/StatisticsScreen';
+import PillboxScreen from '@/screens/PillboxScreen';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
@@ -998,10 +999,22 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [inventoryMedId,  setInventoryMedId]  = useState<string | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showStatistics,  setShowStatistics]  = useState(false);
+  const [showPillbox,     setShowPillbox]     = useState(false);
+
+  const medScrollRef = useRef<ScrollView>(null);
+  const medScrollY = useRef(0);
+  const pendingScrollY = useRef<number | null>(null);
 
   // ── Ref so callbacks always see current medications without stale closures ──
   const medicationsRef = useRef<PatientMedication[]>([]);
   useEffect(() => { medicationsRef.current = medications; }, [medications]);
+
+  useLayoutEffect(() => {
+    if (pendingScrollY.current !== null) {
+      medScrollRef.current?.scrollTo({ y: pendingScrollY.current, animated: false });
+      pendingScrollY.current = null;
+    }
+  }, [medications]);
 
   const today      = new Date();
   const takenToday = medications.filter(m => m.taken && !m.suspended).length;
@@ -1158,6 +1171,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
     const med = medicationsRef.current.find(m => m.id === id);
     if (!med) return;
 
+    pendingScrollY.current = medScrollY.current;
     const newTaken = !med.taken;
     const nextMeds = medicationsRef.current.map(m => m.id === id ? { ...m, taken: newTaken } : m);
 
@@ -1465,6 +1479,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         onPress={() => { setInventoryMedId(null); setShowInventory(true); }}
       />
       <MenuRow
+        icon="hardware-chip-outline"
+        label="Connect to Pillbox"
+        sub="Link a smart pillbox device"
+        onPress={() => setShowPillbox(true)}
+      />
+      <MenuRow
         icon="bar-chart-outline"
         label="Statistics"
         sub="View your medication statistics"
@@ -1580,6 +1600,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           onRefill={handleRefill}
           onSuspend={handleSuspendMed}
           onToggleNotify={handleToggleMedNotify}
+          scrollRef={medScrollRef}
+          onScrollOffset={y => { medScrollY.current = y; }}
         />
       );
       case 'Manage':      return <ManageScreen />;
@@ -1619,6 +1641,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           onEdit={m => { setEditingMed(m); setShowAddModal(true); }}
           onRefill={handleRefill}
           onSuspend={handleSuspendMed}
+          scrollRef={medScrollRef}
+          onScrollOffset={y => { medScrollY.current = y; }}
         />
         <ManageScreen />
       </SwipeTabHost>
@@ -1665,6 +1689,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         medications={medications}
         focusMedId={inventoryMedId}
         onClose={() => { setShowInventory(false); setInventoryMedId(null); }}
+      />
+      <PillboxScreen
+        visible={showPillbox}
+        patientUid={uid}
+        patientName={displayName}
+        onClose={() => setShowPillbox(false)}
       />
       <LogoutModal
         visible={showLogoutModal}
