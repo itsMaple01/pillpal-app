@@ -7,8 +7,45 @@ async function runMigrations() {
       await pool.query(sql);
     } catch (e) {
       console.error(`[migrate] ${label}:`, e.message);
+      if (e.stack) console.error(e.stack);
     }
   };
+
+  // Core tables required by cron jobs (schedules, dose_logs, medication_push_log)
+  await run('medications.base', `
+    CREATE TABLE IF NOT EXISTS medications (
+      id SERIAL PRIMARY KEY,
+      patient_uid VARCHAR(128) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      dosage VARCHAR(100),
+      frequency VARCHAR(100),
+      program VARCHAR(255),
+      start_date DATE,
+      end_date DATE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+
+  await run('schedules', `
+    CREATE TABLE IF NOT EXISTS schedules (
+      id SERIAL PRIMARY KEY,
+      medication_id INTEGER REFERENCES medications(id) ON DELETE CASCADE,
+      patient_uid VARCHAR(128) NOT NULL,
+      scheduled_time TIME NOT NULL,
+      days_of_week TEXT[],
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+
+  await run('dose_logs', `
+    CREATE TABLE IF NOT EXISTS dose_logs (
+      id SERIAL PRIMARY KEY,
+      schedule_id INTEGER REFERENCES schedules(id) ON DELETE CASCADE,
+      patient_uid VARCHAR(128) NOT NULL,
+      scheduled_at TIMESTAMP NOT NULL,
+      taken_at TIMESTAMP,
+      status VARCHAR(20) CHECK (status IN ('taken', 'missed', 'pending')) DEFAULT 'pending',
+      alert_sent BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
 
   await run('users.health_condition', `ALTER TABLE users ADD COLUMN IF NOT EXISTS health_condition TEXT`);
   await run('users.expo_push_token', `ALTER TABLE users ADD COLUMN IF NOT EXISTS expo_push_token TEXT`);

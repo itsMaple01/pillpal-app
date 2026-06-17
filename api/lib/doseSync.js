@@ -72,6 +72,7 @@ async function syncTodayDoseLogsForPatient(patientUid) {
       const existing = await pool.query(
         `SELECT id, status FROM dose_logs
          WHERE schedule_id = $1 AND patient_uid = $2
+<<<<<<< HEAD
            AND scheduled_at::date = $3::date`,
         [Number(scheduleId), String(med.patient_uid), String(manila.today)],
       );
@@ -88,6 +89,18 @@ async function syncTodayDoseLogsForPatient(patientUid) {
             String(status),
             status === 'taken' ? new Date().toISOString() : null,
           ],
+=======
+           AND (scheduled_at AT TIME ZONE 'Asia/Manila')::date = $3::date`,
+        [scheduleId, med.patient_uid, manila.today],
+      );
+
+      if (existing.rowCount === 0) {
+        await pool.query(
+          `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
+           VALUES ($1, $2, ($3::timestamp AT TIME ZONE 'Asia/Manila'), $4,
+             CASE WHEN $4 = 'taken' THEN NOW() ELSE NULL END)`,
+          [scheduleId, med.patient_uid, scheduledLocal, status],
+>>>>>>> 8985efd42f81026c6d8cde3dd73a2b931174ad93
         );
         continue;
       }
@@ -98,16 +111,32 @@ async function syncTodayDoseLogsForPatient(patientUid) {
       if (status === 'taken') {
         await pool.query(
           `UPDATE dose_logs SET status = 'taken', taken_at = NOW() WHERE id = $1`,
+<<<<<<< HEAD
           [Number(row.id)],
+=======
+          [row.id],
+>>>>>>> 8985efd42f81026c6d8cde3dd73a2b931174ad93
         );
       } else if (row.status === 'pending' && status === 'missed') {
         await pool.query(
           `UPDATE dose_logs SET status = 'missed' WHERE id = $1 AND status = 'pending'`,
+<<<<<<< HEAD
           [Number(row.id)],
         );
       }
     } catch (err) {
       console.error(`[doseSync] med ${med.id} patient ${med.patient_uid}:`, err.message);
+=======
+          [row.id],
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[doseSync] med ${med.id} patient ${patientUid}:`,
+        err.message,
+        err.stack || '',
+      );
+>>>>>>> 8985efd42f81026c6d8cde3dd73a2b931174ad93
     }
   }
 }
@@ -128,7 +157,15 @@ async function syncAllTodayDoseLogs() {
     `SELECT DISTINCT patient_uid FROM medications WHERE COALESCE(suspended, FALSE) = FALSE`,
   );
   for (const row of res.rows) {
-    await syncTodayDoseLogsForPatient(row.patient_uid);
+    try {
+      await syncTodayDoseLogsForPatient(row.patient_uid);
+    } catch (err) {
+      console.error(
+        `[doseSync] patient ${row.patient_uid}:`,
+        err.message,
+        err.stack || '',
+      );
+    }
   }
 }
 

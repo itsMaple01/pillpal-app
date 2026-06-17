@@ -256,7 +256,7 @@ async function sendDueMedicationReminders() {
       `[cron] Medication reminder pusher done — sent ${sentCount}, skipped ${skippedCount}`,
     );
   } catch (err) {
-    console.error('❌ Medication reminder pusher error:', err.message);
+    console.error('Medication reminder pusher error:', err);
   }
 }
 
