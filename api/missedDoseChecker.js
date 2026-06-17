@@ -8,7 +8,11 @@ async function checkMissedDoses() {
     const manila = getManilaNow();
     console.log(`[cron] Missed dose checker fired — Manila ${manila.today} (2-hour rule)`);
 
-    await syncAllTodayDoseLogs();
+    try {
+      await syncAllTodayDoseLogs();
+    } catch (syncErr) {
+      console.error('[cron] dose sync failed (continuing with alert query):', syncErr);
+    }
 
     const result = await pool.query(`
       SELECT
@@ -25,7 +29,7 @@ async function checkMissedDoses() {
       JOIN users u ON dl.patient_uid = u.firebase_uid
       JOIN caretaker_patients cp ON dl.patient_uid = cp.patient_uid AND cp.status = 'active'
       WHERE dl.status = 'missed'
-        AND dl.scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+        AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
         AND dl.scheduled_at < NOW() - INTERVAL '2 hours'
         AND COALESCE(dl.alert_sent, FALSE) = FALSE
     `);
@@ -56,7 +60,7 @@ async function checkMissedDoses() {
 
     console.log(`✅ Checked missed doses: ${result.rows.length} alerts sent`);
   } catch (err) {
-    console.error('❌ Missed dose checker error:', err.message);
+    console.error('Missed dose checker error:', err);
   }
 }
 
