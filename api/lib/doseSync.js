@@ -59,45 +59,55 @@ async function syncTodayDoseLogsForPatient(patientUid) {
   );
 
   for (const med of meds.rows) {
-    const scheduleId = await ensureScheduleForMedication(med);
-    if (!scheduleId) continue;
+    try {
+      const scheduleId = await ensureScheduleForMedication(med);
+      if (!scheduleId) continue;
 
-    const parsed = parseMedicationTime(medicationTimeStr(med));
-    if (!parsed) continue;
+      const parsed = parseMedicationTime(medicationTimeStr(med));
+      if (!parsed) continue;
 
-    const scheduledLocal = manilaScheduledTimestamp(manila.today, parsed.hour, parsed.minute);
-    const status = resolveDoseStatus(med, parsed, manila);
+      const scheduledLocal = manilaScheduledTimestamp(manila.today, parsed.hour, parsed.minute);
+      const status = resolveDoseStatus(med, parsed, manila);
 
-    const existing = await pool.query(
-      `SELECT id, status FROM dose_logs
-       WHERE schedule_id = $1 AND patient_uid = $2
-         AND scheduled_at::date = $3::date`,
-      [scheduleId, med.patient_uid, manila.today],
-    );
-
-    if (existing.rowCount === 0) {
-      await pool.query(
-        `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
-         VALUES ($1, $2, ($3::timestamp AT TIME ZONE 'Asia/Manila'), $4,
-           CASE WHEN $4 = 'taken' THEN NOW() ELSE NULL END)`,
-        [scheduleId, med.patient_uid, scheduledLocal, status],
+      const existing = await pool.query(
+        `SELECT id, status FROM dose_logs
+         WHERE schedule_id = $1 AND patient_uid = $2
+           AND scheduled_at::date = $3::date`,
+        [Number(scheduleId), String(med.patient_uid), String(manila.today)],
       );
-      continue;
-    }
 
-    const row = existing.rows[0];
-    if (row.status === 'taken') continue;
+      if (existing.rowCount === 0) {
+        const scheduledAtUtc = new Date(scheduledLocal).toISOString();
+        await pool.query(
+          `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            Number(scheduleId),
+            String(med.patient_uid),
+            scheduledAtUtc,
+            String(status),
+            status === 'taken' ? new Date().toISOString() : null,
+          ],
+        );
+        continue;
+      }
 
-    if (status === 'taken') {
-      await pool.query(
-        `UPDATE dose_logs SET status = 'taken', taken_at = NOW() WHERE id = $1`,
-        [row.id],
-      );
-    } else if (row.status === 'pending' && status === 'missed') {
-      await pool.query(
-        `UPDATE dose_logs SET status = 'missed' WHERE id = $1 AND status = 'pending'`,
-        [row.id],
-      );
+      const row = existing.rows[0];
+      if (row.status === 'taken') continue;
+
+      if (status === 'taken') {
+        await pool.query(
+          `UPDATE dose_logs SET status = 'taken', taken_at = NOW() WHERE id = $1`,
+          [Number(row.id)],
+        );
+      } else if (row.status === 'pending' && status === 'missed') {
+        await pool.query(
+          `UPDATE dose_logs SET status = 'missed' WHERE id = $1 AND status = 'pending'`,
+          [Number(row.id)],
+        );
+      }
+    } catch (err) {
+      console.error(`[doseSync] med ${med.id} patient ${med.patient_uid}:`, err.message);
     }
   }
 }
