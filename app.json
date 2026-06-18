@@ -52,11 +52,11 @@
       ]
     ],
     "extra": {
-      "apiUrl": "https://pillpal-app.onrender.com",
-      "eas": {
-        "projectId": "62fe7318-4957-4c42-ba08-ee1247855185"
-      }
-    },
+  "apiUrl": "https://pillpal-app-production.up.railway.app",
+  "eas": {
+    "projectId": "62fe7318-4957-4c42-ba08-ee1247855185"
+  }
+ },
     "owner": "hashchug"
   }
 }
