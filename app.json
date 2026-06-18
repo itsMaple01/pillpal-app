@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "GabayRa",
-    "slug": "pillpal-app",
+    "slug": "gabayra",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -34,7 +34,9 @@
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "POST_NOTIFICATIONS",
-        "CAMERA"
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -52,11 +54,11 @@
       ]
     ],
     "extra": {
-  "apiUrl": "https://pillpal-app-production.up.railway.app",
-  "eas": {
-    "projectId": "62fe7318-4957-4c42-ba08-ee1247855185"
-  }
-},
-    "owner": "hashchug"
+      "apiUrl": "https://pillpal-app-production.up.railway.app",
+      "eas": {
+        "projectId": "320d4b78-05bb-4c61-a5c5-40493aa4e583"
+      }
+    },
+    "owner": "miskamiskas-organization"
   }
 }
