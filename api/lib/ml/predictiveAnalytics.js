@@ -1,7 +1,7 @@
 const path = require('path');
 const ort = require('onnxruntime-node');
 
-const MODEL_DIR = path.join(__dirname, '../../../ml/ml-model');
+const MODEL_DIR = path.join(__dirname, 'ml-model');
 
 const HEALTH_CONDITION_MAP = {
   asthma: 0, copd: 1, diabetes: 2, heart_disease: 3, hypertension: 4, none: 5
