@@ -1,11 +1,11 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-export const PRODUCTION_API_URL = 'https://pillpal-app.onrender.com';
+export const PRODUCTION_API_URL = 'https://pillpal-app-production.up.railway.app';
 
 /**
  * Resolve API host.
- * Defaults to production Render URL so Expo Go / team builds work without a local server.
+ * Defaults to production Railway URL so Expo Go / team builds work without a local server.
  * Set EXPO_PUBLIC_USE_LOCAL_API=1 to use Metro host on port 3001 during backend dev.
  */
 export function getApiBaseUrl(): string {
