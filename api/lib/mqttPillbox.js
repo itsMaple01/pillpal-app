@@ -91,11 +91,11 @@ async function handlePillboxDoseTaken(payload) {
   } else if (dose.schedule_id) {
     await pool.query(
       `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
-       SELECT $1, $2, NOW(), 'taken', NOW()
+       SELECT $1, $2::text, NOW(), 'taken', NOW()
        WHERE NOT EXISTS (
          SELECT 1 FROM dose_logs
          WHERE schedule_id = $1
-           AND patient_uid = $2
+           AND patient_uid = $2::text
            AND (scheduled_at AT TIME ZONE 'Asia/Manila')::date = $3::date
        )`,
       [dose.schedule_id, patientUid, manila.today],
