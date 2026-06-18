@@ -1,5 +1,6 @@
 const pool = require('./db');
 const { sendPushNotification } = require('./lib/expoPush');
+const { notifyLinkedCaretakers } = require('./lib/caretakerNotify');
 
 const WINDOW_MINUTES = 5;
 const MANILA_TZ = 'Asia/Manila';
@@ -106,7 +107,7 @@ async function medicationTakenToday(medicationId, patientUid) {
   return result.rowCount > 0;
 }
 
-async function sendPushAndLog(row, body, today) {
+async function sendPushAndLog(row, body, today, scheduledLabel) {
   if (!row.expo_push_token) {
     console.warn(`⚠️ No FCM token for patient ${row.patient_uid}`);
     return false;
@@ -124,6 +125,17 @@ async function sendPushAndLog(row, body, today) {
         schedule_id: row.schedule_id ?? '',
       },
     );
+
+    const patientName = row.patient_name || 'Patient';
+    await notifyLinkedCaretakers(row.patient_uid, {
+      title: 'Medication Reminder',
+      body: `${patientName} has a medication due: ${row.medication_name} at ${scheduledLabel}`,
+      data: {
+        type: 'caretaker_med_reminder',
+        patient_uid: row.patient_uid,
+        medication_id: String(row.medication_id),
+      },
+    });
 
     await pool.query(
       `INSERT INTO medication_push_log (medication_id, patient_uid, push_type, push_date)
@@ -155,10 +167,12 @@ async function sendDueMedicationReminders() {
              s.scheduled_time,
              s.patient_uid,
              m.name AS medication_name,
-             u.expo_push_token
+             u.expo_push_token,
+             pu.full_name AS patient_name
       FROM schedules s
       JOIN medications m ON m.id = s.medication_id
       JOIN users u ON u.firebase_uid = s.patient_uid
+      JOIN users pu ON pu.firebase_uid = s.patient_uid
       WHERE COALESCE(m.suspended, FALSE) = FALSE
         AND COALESCE(m.notify_enabled, TRUE) = TRUE
         AND u.expo_push_token IS NOT NULL
@@ -195,6 +209,7 @@ async function sendDueMedicationReminders() {
         row,
         `Time for ${row.medication_name} · ${parsed.label}`,
         manila.today,
+        parsed.label,
       );
       if (sent) sentCount += 1;
     }
@@ -205,9 +220,11 @@ async function sendDueMedicationReminders() {
              m.program,
              m.frequency,
              m.patient_uid,
-             u.expo_push_token
+             u.expo_push_token,
+             pu.full_name AS patient_name
       FROM medications m
       JOIN users u ON u.firebase_uid = m.patient_uid
+      JOIN users pu ON pu.firebase_uid = m.patient_uid
       WHERE COALESCE(m.suspended, FALSE) = FALSE
         AND COALESCE(m.notify_enabled, TRUE) = TRUE
         AND u.expo_push_token IS NOT NULL
@@ -248,6 +265,7 @@ async function sendDueMedicationReminders() {
         row,
         `Time for ${row.medication_name} · ${parsed.label}`,
         manila.today,
+        parsed.label,
       );
       if (sent) sentCount += 1;
     }

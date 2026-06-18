@@ -26,6 +26,7 @@ import {
   addMedication, deleteMedication, setMedicationTaken, updateMedication,
   getUser, refillMedication, setMedicationFirestoreId,
   getPatientIncomingLinkRequests, acceptLinkRequestAsPatient, rejectLinkRequest,
+  getIntelligenceProfile, getPillboxStatus,
 } from '@/api/index';
 import { subscribePatientMedications } from '@/services/medicationRealtime';
 import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
@@ -46,6 +47,10 @@ import PrivacySecurityModal from '@/components/PrivacySecurityModal';
 import StatTile from '@/components/StatTile';
 import StatisticsScreen from '@/components/StatisticsScreen';
 import PillboxScreen from '@/screens/PillboxScreen';
+import {
+  getRiskLevel, getRiskColor, getRiskBg, getActionLabel, getRiskExplanation,
+  type IntelligenceProfile,
+} from '@/lib/intelligenceDisplay';
 import { bumpPatientActivity } from '@/lib/patientActivity';
 import { cacheMedications, enqueueMutation } from '@/lib/offline/store';
 import { flushOfflineQueue } from '@/lib/offline/sync';
@@ -1000,6 +1005,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showStatistics,  setShowStatistics]  = useState(false);
   const [showPillbox,     setShowPillbox]     = useState(false);
+  const [healthProfile,   setHealthProfile]   = useState<IntelligenceProfile | null>(null);
+  const [pillboxStatus,   setPillboxStatus]   = useState<{ connected: boolean; device_id?: string }>({ connected: false });
 
   const medScrollRef = useRef<ScrollView>(null);
   const medScrollY = useRef(0);
@@ -1026,6 +1033,16 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       setMedications(meds);
       setMedsLoading(false);
     });
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    getIntelligenceProfile(uid)
+      .then(res => setHealthProfile(res.data))
+      .catch(() => setHealthProfile(null));
+    getPillboxStatus(uid)
+      .then(res => setPillboxStatus(res.data))
+      .catch(() => setPillboxStatus({ connected: false }));
   }, [uid]);
 
   useEffect(() => {
@@ -1379,6 +1396,28 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         <StatTile icon="checkmark-circle-outline" value={takenToday} label="Taken today" accent={GREEN} iconBg="#f1f8e9" />
       </View>
 
+      {healthProfile && (() => {
+        const riskLevel = getRiskLevel(healthProfile);
+        const riskColor = getRiskColor(riskLevel);
+        return (
+          <View style={[styles.insightsCard, { borderColor: riskColor }]}>
+            <View style={styles.insightsHeader}>
+              <AppIcon name="analytics-outline" size={22} color={riskColor} />
+              <Text style={styles.insightsTitle}>Health Insights</Text>
+              <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
+                <Text style={[styles.riskBadgeText, { color: riskColor }]}>{riskLevel} risk</Text>
+              </View>
+            </View>
+            <Text style={styles.insightsAction}>
+              Recommended: {getActionLabel(healthProfile.action)}
+            </Text>
+            <Text style={styles.insightsExplain}>
+              {getRiskExplanation(healthProfile, riskLevel)}
+            </Text>
+          </View>
+        );
+      })()}
+
       {medsLoading ? <SkeletonMedCard /> : (
         <MedicationsCard
           medications={medications}
@@ -1480,8 +1519,12 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       />
       <MenuRow
         icon="hardware-chip-outline"
-        label="Connect to Pillbox"
-        sub="Link a smart pillbox device"
+        label={pillboxStatus.connected ? 'View Pillbox' : 'Connect to Pillbox'}
+        sub={
+          pillboxStatus.connected
+            ? `${pillboxStatus.device_id ?? 'Pillbox'} · Connected`
+            : 'Link a smart pillbox device'
+        }
         onPress={() => setShowPillbox(true)}
       />
       <MenuRow
@@ -1694,7 +1737,10 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         visible={showPillbox}
         patientUid={uid}
         patientName={displayName}
-        onClose={() => setShowPillbox(false)}
+        onClose={() => {
+          setShowPillbox(false);
+          getPillboxStatus(uid).then(res => setPillboxStatus(res.data)).catch(() => {});
+        }}
       />
       <LogoutModal
         visible={showLogoutModal}
@@ -1805,6 +1851,19 @@ const styles = StyleSheet.create({
   greetingSub:  { fontSize: TEXT.sm, color: '#666', marginTop: 2 },
 
   statsRow: { flexDirection: 'row', gap: 12 },
+  insightsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  insightsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  insightsTitle: { flex: 1, fontSize: TEXT.md, fontWeight: '800', color: '#222' },
+  riskBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  riskBadgeText: { fontSize: 12, fontWeight: '800' },
+  insightsAction: { fontSize: TEXT.sm, fontWeight: '700', color: '#444' },
+  insightsExplain: { fontSize: TEXT.sm, color: '#666', lineHeight: 20 },
   statCard: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 16, alignItems: 'center' },
   statIcon:  { fontSize: 24, marginBottom: 4 },
   statNum:   { fontSize: TEXT.xxl, fontWeight: '800', color: '#222' },

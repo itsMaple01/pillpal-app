@@ -72,6 +72,13 @@ async function boot() {
     }
 
     startCronJobs();
+
+    try {
+      const { startMqttPillboxListener } = require('./lib/mqttPillbox');
+      startMqttPillboxListener();
+    } catch (err) {
+      console.error('[mqtt] failed to start listener:', err);
+    }
   });
 }
 

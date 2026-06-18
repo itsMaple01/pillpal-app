@@ -154,6 +154,8 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
             chartConfig={chartConfig}
             verticalLabelRotation={30}
             fromZero
+            yAxisLabel=""
+            yAxisSuffix=""
           />
         ) : (
           <View style={styles.noDataWrap}>
@@ -175,6 +177,8 @@ export default function StatisticsScreen({ stats, connectedAccounts, monthlyData
             }}
             verticalLabelRotation={30}
             fromZero
+            yAxisLabel=""
+            yAxisSuffix=""
           />
         ) : (
           <View style={styles.noDataWrap}>

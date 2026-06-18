@@ -162,3 +162,6 @@ export const disconnectPillbox = (patient_uid: string) =>
 
 export const getPillboxAdherence = (patient_uid: string) =>
   api.get(`/api/pillbox/adherence/${patient_uid}`);
+
+export const getIntelligenceProfile = (uid: string) =>
+  api.get(`/api/intelligence/profile/${uid}`);

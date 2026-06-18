@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
-  unlinkPatient,
+  unlinkPatient, getIntelligenceProfile, getPillboxStatus,
 } from '@/api/index';
 import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
 import { subscribeCaretakerOverview } from '@/services/caretakerRealtime';
@@ -28,6 +28,10 @@ import LogoutModal from '@/components/LogoutModal';
 import StatisticsScreen from '@/components/StatisticsScreen';
 import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
 import PillboxScreen from '@/screens/PillboxScreen';
+import {
+  getRiskLevel, getRiskColor, getRiskBg, getActionLabel,
+  type IntelligenceProfile,
+} from '@/lib/intelligenceDisplay';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -90,6 +94,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
   const [showPillbox, setShowPillbox] = useState(false);
   const [selectedPatientForPillbox, setSelectedPatientForPillbox] = useState<string | null>(null);
+  const [pillboxStatus, setPillboxStatus] = useState<{ connected: boolean; device_id?: string }>({ connected: false });
+  const [mlProfiles, setMlProfiles] = useState<Record<string, IntelligenceProfile>>({});
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
   const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
@@ -175,6 +181,36 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       },
     );
   }, [people.map(p => p.firebase_uid).sort().join(','), loadPeople]);
+
+  useEffect(() => {
+    if (people.length === 0) {
+      setPillboxStatus({ connected: false });
+      return;
+    }
+    getPillboxStatus(people[0].firebase_uid)
+      .then(res => setPillboxStatus(res.data))
+      .catch(() => setPillboxStatus({ connected: false }));
+  }, [people]);
+
+  useEffect(() => {
+    if (people.length === 0) {
+      setMlProfiles({});
+      return;
+    }
+    Promise.all(
+      people.map(p =>
+        getIntelligenceProfile(p.firebase_uid)
+          .then(res => ({ uid: p.firebase_uid, profile: res.data as IntelligenceProfile }))
+          .catch(() => null),
+      ),
+    ).then(results => {
+      const next: Record<string, IntelligenceProfile> = {};
+      results.forEach(r => {
+        if (r) next[r.uid] = r.profile;
+      });
+      setMlProfiles(next);
+    });
+  }, [people]);
 
   const alert = (title: string, msg: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${msg}`);
@@ -312,6 +348,21 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
             <Text style={styles.personSub}>
               Age {person.age ?? '—'} · {pending} pending · {meds.length} meds
             </Text>
+            {mlProfiles[person.firebase_uid] && (() => {
+              const profile = mlProfiles[person.firebase_uid];
+              const riskLevel = getRiskLevel(profile);
+              const riskColor = getRiskColor(riskLevel);
+              return (
+                <View style={[styles.mlBadgeRow, { marginTop: 8 }]}>
+                  <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
+                    <Text style={[styles.riskBadgeText, { color: riskColor }]}>
+                      {riskLevel} risk
+                    </Text>
+                  </View>
+                  <Text style={styles.mlActionText}>{getActionLabel(profile.action)}</Text>
+                </View>
+              );
+            })()}
           </View>
         </View>
         {!compact && (
@@ -485,8 +536,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       />
       <MenuRow
         icon="hardware-chip-outline"
-        label="Connect to Pillbox"
-        sub="Link a smart pillbox device"
+        label={pillboxStatus.connected ? 'View Pillbox' : 'Connect to Pillbox'}
+        sub={
+          pillboxStatus.connected
+            ? `${pillboxStatus.device_id ?? 'Pillbox'} · Connected`
+            : 'Link a smart pillbox device'
+        }
         onPress={() => {
           if (people.length > 0) {
             setSelectedPatientForPillbox(people[0].firebase_uid);
@@ -636,7 +691,14 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         visible={showPillbox}
         patientUid={selectedPatientForPillbox || ''}
         patientName={people.find(p => p.firebase_uid === selectedPatientForPillbox)?.full_name}
-        onClose={() => { setShowPillbox(false); setSelectedPatientForPillbox(null); }}
+        onClose={() => {
+          setShowPillbox(false);
+          const pid = selectedPatientForPillbox;
+          setSelectedPatientForPillbox(null);
+          if (pid) {
+            getPillboxStatus(pid).then(res => setPillboxStatus(res.data)).catch(() => {});
+          }
+        }}
       />
       <LinkedPatientsScreen
         visible={showLinkedPatients}
@@ -740,6 +802,10 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: TEXT.lg, fontWeight: '800', color: GREEN },
   personName: { fontSize: TEXT.md, fontWeight: '800', color: '#222' },
   personSub: { fontSize: TEXT.sm, color: '#777', marginTop: 4 },
+  mlBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  riskBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  riskBadgeText: { fontSize: 11, fontWeight: '800' },
+  mlActionText: { fontSize: 11, color: '#666', fontWeight: '600' },
   personActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
   actionBtn: {
     flex: 1,

@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getIncomingLinkRequests, getUser,
   acceptLinkRequest, rejectLinkRequest, updateLinkedPatientProfile,
-  sendPatientReminder, unlinkPatient,
+  sendPatientReminder, unlinkPatient, getIntelligenceProfile, getPillboxStatus,
 } from '@/api/index';
 import { registerAndSavePushTokenIfNeeded } from '@/lib/pushNotifications';
 import { subscribePatientMedications, mapMedicationRows } from '@/services/medicationRealtime';
@@ -38,6 +38,10 @@ import { SkeletonPatientRow } from '@/components/Skeleton';
 import StatisticsScreen from '@/components/StatisticsScreen';
 import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
 import PillboxScreen from '@/screens/PillboxScreen';
+import {
+  getRiskLevel, getRiskColor, getRiskBg, getActionLabel,
+  type IntelligenceProfile,
+} from '@/lib/intelligenceDisplay';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
@@ -131,6 +135,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [selectedPatientForInventory, setSelectedPatientForInventory] = useState<string | null>(null);
   const [showPillbox,       setShowPillbox]        = useState(false);
   const [selectedPatientForPillbox, setSelectedPatientForPillbox] = useState<string | null>(null);
+  const [pillboxStatus, setPillboxStatus] = useState<{ connected: boolean; device_id?: string }>({ connected: false });
+  const [mlProfiles, setMlProfiles] = useState<Record<string, IntelligenceProfile>>({});
   const [showLinkedPatients, setShowLinkedPatients] = useState(false);
   const patientsScrollY = useRef(new Animated.Value(0)).current;
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
@@ -197,6 +203,36 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       }
     } finally { if (!quiet) setLoading(false); }
   }, [uid, showAlert]);
+
+  useEffect(() => {
+    if (patients.length === 0) {
+      setPillboxStatus({ connected: false });
+      return;
+    }
+    getPillboxStatus(patients[0].firebase_uid)
+      .then(res => setPillboxStatus(res.data))
+      .catch(() => setPillboxStatus({ connected: false }));
+  }, [patients]);
+
+  useEffect(() => {
+    if (patients.length === 0) {
+      setMlProfiles({});
+      return;
+    }
+    Promise.all(
+      patients.map(p =>
+        getIntelligenceProfile(p.firebase_uid)
+          .then(res => ({ uid: p.firebase_uid, profile: res.data as IntelligenceProfile }))
+          .catch(() => null),
+      ),
+    ).then(results => {
+      const next: Record<string, IntelligenceProfile> = {};
+      results.forEach(r => {
+        if (r) next[r.uid] = r.profile;
+      });
+      setMlProfiles(next);
+    });
+  }, [patients]);
 
   useEffect(() => {
     if (online) flushOfflineQueue().then(n => { if (n > 0) fetchPatients(true); });
@@ -514,6 +550,24 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                 </View>
               ))}
             </View>
+            {mlProfiles[patient.firebase_uid] && (() => {
+              const profile = mlProfiles[patient.firebase_uid];
+              const riskLevel = getRiskLevel(profile);
+              const riskColor = getRiskColor(riskLevel);
+              return (
+                <View style={[styles.mlInsightCard, { borderColor: riskColor }]}>
+                  <View style={styles.mlInsightHeader}>
+                    <Text style={styles.mlInsightLabel}>ML risk</Text>
+                    <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
+                      <Text style={[styles.riskBadgeText, { color: riskColor }]}>{riskLevel}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.mlInsightAction}>
+                    Action: {getActionLabel(profile.action)}
+                  </Text>
+                </View>
+              );
+            })()}
             <View style={styles.expandedActions}>
               <TouchableOpacity
                 style={styles.actionBtnGreen}
@@ -1006,8 +1060,12 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       />
       <MenuRow
         icon="hardware-chip-outline"
-        label="Connect to Pillbox"
-        sub="Link a smart pillbox device"
+        label={pillboxStatus.connected ? 'View Pillbox' : 'Connect to Pillbox'}
+        sub={
+          pillboxStatus.connected
+            ? `${pillboxStatus.device_id ?? 'Pillbox'} · Connected`
+            : 'Link a smart pillbox device'
+        }
         onPress={() => {
           if (patients.length > 0) {
             setSelectedPatientForPillbox(patients[0].firebase_uid);
@@ -1353,7 +1411,14 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       visible={showPillbox}
       patientUid={selectedPatientForPillbox || ''}
       patientName={patients.find(p => p.firebase_uid === selectedPatientForPillbox)?.full_name}
-      onClose={() => { setShowPillbox(false); setSelectedPatientForPillbox(null); }}
+      onClose={() => {
+        setShowPillbox(false);
+        const pid = selectedPatientForPillbox;
+        setSelectedPatientForPillbox(null);
+        if (pid) {
+          getPillboxStatus(pid).then(res => setPillboxStatus(res.data)).catch(() => {});
+        }
+      }}
     />
     <LinkedPatientsScreen
       visible={showLinkedPatients}
@@ -1659,6 +1724,19 @@ const styles = StyleSheet.create({
   expandedStat:    { flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: '#eee' },
   expandedStatNum:   { fontSize: 14, fontWeight: '800', color: '#222' },
   expandedStatLabel: { fontSize: 10, color: '#888', marginTop: 2, textAlign: 'center' },
+  mlInsightCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+    gap: 6,
+  },
+  mlInsightHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  mlInsightLabel: { fontSize: 12, fontWeight: '700', color: '#666' },
+  mlInsightAction: { fontSize: 12, color: '#444', fontWeight: '600' },
+  riskBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  riskBadgeText: { fontSize: 11, fontWeight: '800' },
   expandedActions:   { flexDirection: 'row', gap: 10 },
 
   actionBtnGreen: {

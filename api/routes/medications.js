@@ -2,7 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const pool    = require('../db');
 const admin   = require('../firebaseAdmin');
-const { sendPushNotification } = require('../lib/expoPush');
+const { notifyLinkedCaretakers } = require('../lib/caretakerNotify');
 
 async function bumpPatientActivity(patientUid, type = 'medication_update') {
   try {
@@ -144,28 +144,15 @@ router.patch('/:id/taken', async (req, res) => {
         );
         const patientName = patientRes.rows[0]?.full_name || 'Patient';
 
-        const caretakers = await pool.query(
-          `SELECT u.expo_push_token
-           FROM caretaker_patients cp
-           JOIN users u ON u.firebase_uid = cp.caretaker_uid
-           WHERE cp.patient_uid = $1
-             AND cp.status = 'active'
-             AND u.expo_push_token IS NOT NULL`,
-          [row.patient_uid],
-        );
-
-        for (const c of caretakers.rows) {
-          await sendPushNotification(
-            c.expo_push_token,
-            'Medication Taken',
-            `${patientName} has taken ${row.name}`,
-            {
-              type: 'medication_taken',
-              patient_uid: row.patient_uid,
-              medication_id: String(row.id),
-            },
-          );
-        }
+        await notifyLinkedCaretakers(row.patient_uid, {
+          title: 'Medication Taken',
+          body: `${patientName} has taken ${row.name}`,
+          data: {
+            type: 'medication_taken',
+            patient_uid: row.patient_uid,
+            medication_id: String(row.id),
+          },
+        });
       } catch (pushErr) {
         console.warn('Caretaker taken notification failed:', pushErr.message);
       }
