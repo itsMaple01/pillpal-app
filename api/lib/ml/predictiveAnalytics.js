@@ -9,8 +9,11 @@ const HEALTH_CONDITION_MAP = {
 
 /** Matches intelligenceEngine.js — late if taken > 30 minutes after scheduled. */
 const LATE_THRESHOLD_MINUTES = 30;
-const MIN_EVENTS_FOR_RISK = 5;
+/** Minimum logged dose events before high/medium risk tiers are returned. */
+const MIN_DOSE_EVENTS_FOR_RISK = 5;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+const DOSE_EVENT_TYPES = new Set(['taken', 'missed', 'confirm', 'snooze', 'ignore']);
 
 let riskSession = null;
 let actionSession = null;
@@ -84,19 +87,28 @@ function countLateMissedInLast7Days(events) {
 }
 
 /**
+ * Count logged dose-related intelligence_events (excludes opened_app, etc.).
+ */
+function countDoseEvents(events) {
+  return events.filter(e => DOSE_EVENT_TYPES.has(e.event_type)).length;
+}
+
+/**
  * Derive risk tier from intelligence_events history + ONNX binary score.
- * Below MIN_EVENTS_FOR_RISK logged events → always low, sample_size_sufficient: false.
+ * Gate applied here in deriveRiskLabel(): below MIN_DOSE_EVENTS_FOR_RISK dose events
+ * → label 'low', sample_size_sufficient: false (UI shows "Still learning…").
  */
 function deriveRiskLabel(events, onnxRiskScore) {
-  const sample_size_sufficient = events.length >= MIN_EVENTS_FOR_RISK;
+  const doseEventCount = countDoseEvents(events);
+  const sample_size_sufficient = doseEventCount >= MIN_DOSE_EVENTS_FOR_RISK;
 
   if (!sample_size_sufficient) {
-    return { label: 'low', sample_size_sufficient: false };
+    return { label: 'low', sample_size_sufficient: false, lateMissedCount: 0 };
   }
 
   const lateMissedCount = countLateMissedInLast7Days(events);
 
-  if (lateMissedCount >= 3 || onnxRiskScore === 1) {
+  if (lateMissedCount >= 3 || (onnxRiskScore === 1 && sample_size_sufficient)) {
     return { label: 'high', sample_size_sufficient: true, lateMissedCount };
   }
   if (lateMissedCount >= 1) {

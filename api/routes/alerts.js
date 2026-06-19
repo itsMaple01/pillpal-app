@@ -80,12 +80,18 @@ router.post('/', async (req, res) => {
       : type === 'late_dose'
         ? 'Medication Late'
         : 'GabayRa Alert';
-    const alertBody = message || `${patient_name ?? 'Patient'} — ${medication_name ?? 'medication'}`;
+    const caretakerBody = message || `${patient_name ?? 'Patient'} — ${medication_name ?? 'medication'}`;
+    const patientBody = type === 'missed_dose'
+      ? `Your ${medication_name ?? 'medication'} dose was missed.`
+      : type === 'late_dose'
+        ? `Your ${medication_name ?? 'medication'} dose is late.`
+        : caretakerBody;
 
     try {
       await notifyPatientAndLinkedCaregivers(patient_uid, {
         title: alertTitle,
-        body: alertBody,
+        caretakerBody,
+        patientBody,
         data: {
           type: type ?? 'alert',
           alert_id: String(alert.id),

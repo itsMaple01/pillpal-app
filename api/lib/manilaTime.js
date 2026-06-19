@@ -60,8 +60,25 @@ function manilaScheduledTimestamp(today, hour, minute) {
   return `${today} ${h}:${m}:00`;
 }
 
+/** Standard dose thresholds: late after 30 min, missed after 2 hours past scheduled time. */
+const LATE_THRESHOLD_MS = 30 * 60 * 1000;
+const MISSED_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+
+function msSinceScheduled(scheduledAtUtcMs) {
+  return Date.now() - scheduledAtUtcMs;
+}
+
+function isPastLateThreshold(scheduledAtUtcMs) {
+  return msSinceScheduled(scheduledAtUtcMs) > LATE_THRESHOLD_MS;
+}
+
+function isPastMissedThreshold(scheduledAtUtcMs) {
+  return msSinceScheduled(scheduledAtUtcMs) > MISSED_THRESHOLD_MS;
+}
+
+/** @deprecated Use isPastMissedThreshold — kept for existing imports. */
 function isPastTwoHourWindow(scheduledAtUtcMs) {
-  return Date.now() - scheduledAtUtcMs > 2 * 60 * 60 * 1000;
+  return isPastMissedThreshold(scheduledAtUtcMs);
 }
 
 /** Convert Manila local datetime string to UTC epoch ms. */
@@ -86,9 +103,14 @@ function toManilaDateString(value) {
 
 module.exports = {
   MANILA_TZ,
+  LATE_THRESHOLD_MS,
+  MISSED_THRESHOLD_MS,
   parseMedicationTime,
   getManilaNow,
   manilaScheduledTimestamp,
+  msSinceScheduled,
+  isPastLateThreshold,
+  isPastMissedThreshold,
   isPastTwoHourWindow,
   manilaLocalToUtcMs,
   toManilaDateString,

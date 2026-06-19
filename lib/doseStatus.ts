@@ -2,6 +2,7 @@ import { parseMedicationTime } from '@/utils/medicationTimeBucket';
 
 export type DoseDisplayStatus = 'taken' | 'late' | 'missed' | 'upcoming' | 'pending';
 
+const THIRTY_MIN_MS = 30 * 60 * 1000;
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
 function scheduledDateToday(timeStr: string): Date | null {
@@ -12,7 +13,7 @@ function scheduledDateToday(timeStr: string): Date | null {
   return scheduled;
 }
 
-/** Clinical dose status: on-time within 2h, late after 2h, missed if 2h+ past with no action. */
+/** Clinical dose status: late >30 min past schedule (<2h), missed >2h, on-time otherwise. */
 export function getDoseDisplayStatus(
   timeStr: string,
   taken: boolean,
@@ -22,16 +23,19 @@ export function getDoseDisplayStatus(
   if (!scheduled) return 'pending';
 
   const now = new Date();
+  const elapsed = now.getTime() - scheduled.getTime();
 
   if (taken || takenAt) {
     const takenTime = takenAt ? new Date(takenAt) : now;
-    if (takenTime.getTime() - scheduled.getTime() > TWO_HOURS_MS) return 'late';
+    const delay = takenTime.getTime() - scheduled.getTime();
+    if (delay > THIRTY_MIN_MS) return 'late';
     return 'taken';
   }
 
   if (now < scheduled) return 'upcoming';
 
-  if (now.getTime() - scheduled.getTime() > TWO_HOURS_MS) return 'missed';
+  if (elapsed > TWO_HOURS_MS) return 'missed';
+  if (elapsed > THIRTY_MIN_MS) return 'late';
   return 'pending';
 }
 

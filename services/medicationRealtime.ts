@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { getMedications } from '@/api/index';
 import { db } from '@/lib/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -101,8 +101,18 @@ export function subscribePatientMedications(
     },
   );
 
+  const activityUnsub = onSnapshot(
+    doc(db, 'patient_activity', patientUid),
+    () => {
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(pull, 280);
+    },
+    () => { /* optional — API pull still works */ },
+  );
+
   return () => {
     unsub();
+    activityUnsub();
     if (debounce) clearTimeout(debounce);
   };
 }

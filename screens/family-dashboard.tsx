@@ -100,6 +100,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [selectedPatientForPillbox, setSelectedPatientForPillbox] = useState<string | null>(null);
   const [pillboxStatus, setPillboxStatus] = useState<{ connected: boolean; device_id?: string }>({ connected: false });
   const [mlProfiles, setMlProfiles] = useState<Record<string, IntelligenceProfile>>({});
+  const [mlLoading, setMlLoading] = useState<Record<string, boolean>>({});
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
   const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
@@ -128,24 +129,11 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       // Combine online and offline patients
       const allPeople = [...list, ...offlinePatients];
       setPeople(allPeople);
-      
-      const medMap: Record<string, PatientMedication[]> = {};
-      
-      await Promise.all(
-        list.map(async (p: LinkedPerson) => {
-          try {
-            const m = await getMedications(p.firebase_uid);
-            const rows = Array.isArray(m.data) ? m.data : [];
-            medMap[p.firebase_uid] = await mapMedicationRows(rows);
-          } catch {
-            medMap[p.firebase_uid] = [];
-          }
-        }),
-      );
-      
-      // Add medications for offline patients
+      setLoading(false);
+
+      const offlineMedMap: Record<string, PatientMedication[]> = {};
       offlinePatients.forEach((p: any) => {
-        medMap[p.firebase_uid] = p.medications.map((med: any) => ({
+        offlineMedMap[p.firebase_uid] = p.medications.map((med: any) => ({
           id: `${p.firebase_uid}_${med.name}`,
           name: med.name,
           dosage: med.dosage,
@@ -156,8 +144,24 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           suspended: false,
         }));
       });
-      
-      setMedsByPerson(medMap);
+
+      const onlineMedEntries = await Promise.all(
+        list.map(async (p: LinkedPerson) => {
+          try {
+            const m = await getMedications(p.firebase_uid);
+            const rows = Array.isArray(m.data) ? m.data : [];
+            return [p.firebase_uid, await mapMedicationRows(rows)] as const;
+          } catch {
+            return [p.firebase_uid, []] as const;
+          }
+        }),
+      );
+
+      setMedsByPerson(prev => ({
+        ...prev,
+        ...Object.fromEntries(onlineMedEntries),
+        ...offlineMedMap,
+      }));
     } catch {
       setPeople([]);
     } finally {
@@ -214,20 +218,22 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   useEffect(() => {
     if (people.length === 0) {
       setMlProfiles({});
+      setMlLoading({});
       return;
     }
-    Promise.all(
-      people.map(p =>
-        getIntelligenceProfile(p.firebase_uid)
-          .then(res => ({ uid: p.firebase_uid, profile: res.data as IntelligenceProfile }))
-          .catch(() => null),
-      ),
-    ).then(results => {
-      const next: Record<string, IntelligenceProfile> = {};
-      results.forEach(r => {
-        if (r) next[r.uid] = r.profile;
-      });
-      setMlProfiles(next);
+    const initialLoading: Record<string, boolean> = {};
+    people.forEach(p => { initialLoading[p.firebase_uid] = true; });
+    setMlLoading(initialLoading);
+
+    people.forEach(p => {
+      getIntelligenceProfile(p.firebase_uid)
+        .then(res => {
+          setMlProfiles(prev => ({ ...prev, [p.firebase_uid]: res.data as IntelligenceProfile }));
+        })
+        .catch(() => {})
+        .finally(() => {
+          setMlLoading(prev => ({ ...prev, [p.firebase_uid]: false }));
+        });
     });
   }, [people]);
 
@@ -238,12 +244,17 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const sendReminder = async (person: LinkedPerson) => {
     try {
-      await sendPatientReminder({
+      const res = await sendPatientReminder({
         caretaker_uid: uid,
         patient_uid: person.firebase_uid,
         message: `${displayName} sent you a medication reminder.`,
       });
-      alert('Sent', `Reminder sent to ${person.full_name ?? person.email}.`);
+      const pushSent = res.data?.push_sent;
+      const pushErr = res.data?.push_error;
+      const msg = pushSent
+        ? `Reminder sent to ${person.full_name ?? person.email}. They should get a notification with sound.`
+        : `Reminder saved. ${pushErr || 'Patient must open the installed GabayRa app once to enable push notifications.'}`;
+      alert(pushSent ? 'Reminder sent' : 'Reminder recorded', msg);
     } catch {
       alert('Error', 'Could not send reminder.');
     }
@@ -379,7 +390,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
             <Text style={styles.personSub}>
               Age {person.age ?? '—'} · {pending} pending · {meds.length} meds
             </Text>
-            {mlProfiles[person.firebase_uid] && (() => {
+            {mlLoading[person.firebase_uid] ? (
+              <View style={[styles.mlBadgeRow, { marginTop: 8 }]}>
+                <ActivityIndicator size="small" color={GREEN} />
+                <Text style={styles.mlActionText}>Loading risk profile…</Text>
+              </View>
+            ) : mlProfiles[person.firebase_uid] && (() => {
               const profile = mlProfiles[person.firebase_uid];
               const learning = isSampleInsufficient(profile);
               const riskLevel = getRiskLevel(profile);
@@ -641,12 +657,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       <AppHeader title={headerTitle} subtitle={`Hi ${displayName}`} />
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={GREEN} size="large" />
-        </View>
-      ) : (
-        <SwipeTabHost
+      <SwipeTabHost
           tabs={(['Home', 'Family', 'Schedule', 'Manage'] as Tab[]).map(t => ({
             key: t,
             icon: FAMILY_TAB_ICONS[t],
@@ -661,7 +672,6 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           <ScheduleScreen />
           <ManageScreen />
         </SwipeTabHost>
-      )}
       <LinkPatientModal
         visible={showLink}
         onClose={() => { setShowLink(false); loadPeople(); }}

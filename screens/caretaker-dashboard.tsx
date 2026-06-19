@@ -141,6 +141,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [selectedPatientForPillbox, setSelectedPatientForPillbox] = useState<string | null>(null);
   const [pillboxStatus, setPillboxStatus] = useState<{ connected: boolean; device_id?: string }>({ connected: false });
   const [mlProfiles, setMlProfiles] = useState<Record<string, IntelligenceProfile>>({});
+  const [mlLoading, setMlLoading] = useState<Record<string, boolean>>({});
+  const [schedulePatientUid, setSchedulePatientUid] = useState<string | null>(null);
   const [showLinkedPatients, setShowLinkedPatients] = useState(false);
   const patientsScrollY = useRef(new Animated.Value(0)).current;
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
@@ -181,23 +183,11 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       const allPatients = [...list, ...offlinePatients];
       setPatients(allPatients);
       await cachePatients(uid, list);
+      if (!quiet) setLoading(false);
 
-      const next: Record<string, PatientMedication[]> = {};
-      
-      // Load medications for online patients
-      for (const p of list) {
-        try {
-          const mres = await getMedications(p.firebase_uid);
-          const rows = Array.isArray(mres.data) ? mres.data : [];
-          next[p.firebase_uid] = await mapMedicationRows(rows);
-        } catch {
-          next[p.firebase_uid] = [];
-        }
-      }
-      
-      // Add medications for offline patients
+      const offlineMedMap: Record<string, PatientMedication[]> = {};
       offlinePatients.forEach((p: any) => {
-        next[p.firebase_uid] = p.medications.map((med: any) => ({
+        offlineMedMap[p.firebase_uid] = p.medications.map((med: any) => ({
           id: `${p.firebase_uid}_${med.name}`,
           name: med.name,
           dosage: med.dosage,
@@ -208,8 +198,24 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           suspended: false,
         }));
       });
-      
-      setScheduleByPatient(next);
+
+      const onlineMedEntries = await Promise.all(
+        list.map(async (p) => {
+          try {
+            const mres = await getMedications(p.firebase_uid);
+            const rows = Array.isArray(mres.data) ? mres.data : [];
+            return [p.firebase_uid, await mapMedicationRows(rows)] as const;
+          } catch {
+            return [p.firebase_uid, []] as const;
+          }
+        }),
+      );
+
+      setScheduleByPatient(prev => ({
+        ...prev,
+        ...Object.fromEntries(onlineMedEntries),
+        ...offlineMedMap,
+      }));
     } catch {
       const cached = await getCachedPatients(uid);
       if (cached?.length) {
@@ -233,20 +239,22 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   useEffect(() => {
     if (patients.length === 0) {
       setMlProfiles({});
+      setMlLoading({});
       return;
     }
-    Promise.all(
-      patients.map(p =>
-        getIntelligenceProfile(p.firebase_uid)
-          .then(res => ({ uid: p.firebase_uid, profile: res.data as IntelligenceProfile }))
-          .catch(() => null),
-      ),
-    ).then(results => {
-      const next: Record<string, IntelligenceProfile> = {};
-      results.forEach(r => {
-        if (r) next[r.uid] = r.profile;
-      });
-      setMlProfiles(next);
+    const initialLoading: Record<string, boolean> = {};
+    patients.forEach(p => { initialLoading[p.firebase_uid] = true; });
+    setMlLoading(initialLoading);
+
+    patients.forEach(p => {
+      getIntelligenceProfile(p.firebase_uid)
+        .then(res => {
+          setMlProfiles(prev => ({ ...prev, [p.firebase_uid]: res.data as IntelligenceProfile }));
+        })
+        .catch(() => {})
+        .finally(() => {
+          setMlLoading(prev => ({ ...prev, [p.firebase_uid]: false }));
+        });
     });
   }, [patients]);
 
@@ -582,7 +590,15 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
                 </View>
               ))}
             </View>
-            {mlProfiles[patient.firebase_uid] && (() => {
+            {mlLoading[patient.firebase_uid] ? (
+              <View style={[styles.mlInsightCard, { borderColor: '#bdbdbd' }]}>
+                <View style={styles.mlInsightHeader}>
+                  <Text style={styles.mlInsightLabel}>ML risk</Text>
+                  <ActivityIndicator size="small" color={GREEN} />
+                </View>
+                <Text style={styles.mlInsightAction}>Loading risk profile…</Text>
+              </View>
+            ) : mlProfiles[patient.firebase_uid] && (() => {
               const profile = mlProfiles[patient.firebase_uid];
               const learning = isSampleInsufficient(profile);
               const riskLevel = getRiskLevel(profile);
@@ -615,7 +631,10 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.actionBtnOutline}
-                onPress={() => setActiveTab('Schedule')}
+                onPress={() => {
+                  setSchedulePatientUid(patient.firebase_uid);
+                  setActiveTab('Schedule');
+                }}
               >
                 <AppIcon name="calendar-outline" size={18} color={GREEN} />
                 <Text style={styles.actionBtnOutlineText}>Schedule</Text>
@@ -907,8 +926,20 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
         .filter(m => !m.suspended)
         .map(() => new Date().toISOString().slice(0, 10)),
     );
+    const scheduleList = schedulePatientUid
+      ? patients.filter(p => p.firebase_uid === schedulePatientUid)
+      : patients;
     return (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
+      {schedulePatientUid && (
+        <TouchableOpacity
+          style={styles.scheduleShowAllBtn}
+          onPress={() => setSchedulePatientUid(null)}
+        >
+          <AppIcon name="arrow-back" size={16} color={GREEN} />
+          <Text style={styles.scheduleShowAllText}>Show all patients</Text>
+        </TouchableOpacity>
+      )}
       <WeekCalendarStrip
         selectedDate={scheduleDate}
         onSelectDate={setScheduleDate}
@@ -925,7 +956,7 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
           <Text style={styles.emptyText}>No patients linked yet</Text>
         </View>
       ) : (
-        patients.map(p => {
+        scheduleList.map(p => {
           const all = (scheduleByPatient[p.firebase_uid] || []).filter(m => !m.suspended);
           const sorted = [...all].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
           return (
@@ -1872,6 +1903,8 @@ const styles = StyleSheet.create({
   scheduleMedLineSub: { fontSize: 12, color: '#666', marginTop: 2 },
   screenTitle:           { fontSize: 18, fontWeight: '800', color: '#222', marginBottom: 4 },
   schedulePatientCard:   { backgroundColor: '#fff', borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: '#eef2ee', shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, elevation: 2 },
+  scheduleShowAllBtn:    { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 4 },
+  scheduleShowAllText:   { fontSize: 14, fontWeight: '700', color: GREEN },
   schedulePatientHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   scheduleAvatar:        { width: 36, height: 36, borderRadius: 18, backgroundColor: GREEN_LIGHT, alignItems: 'center', justifyContent: 'center' },
   scheduleAvatarText:    { fontSize: 14, fontWeight: '800', color: GREEN },

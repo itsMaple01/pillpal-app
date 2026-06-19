@@ -1,10 +1,22 @@
 const pool = require('../db');
+const admin = require('../firebaseAdmin');
 const { sendPushNotification } = require('./expoPush');
 const { notifyLinkedCaretakers } = require('./caretakerNotify');
 const { syncTodayDoseLogsForPatient } = require('./doseSync');
-const { getManilaNow } = require('./manilaTime');
+const { getManilaNow, manilaLocalToUtcMs, parseMedicationTime } = require('./manilaTime');
 
 let mqttPublishClient = null;
+
+async function bumpPatientActivity(patientUid, type = 'pillbox_dose_taken') {
+  try {
+    await admin.firestore().collection('patient_activity').doc(patientUid).set(
+      { type, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+  } catch (err) {
+    console.warn('[mqtt] patient_activity bump failed:', err.message);
+  }
+}
 
 function setMqttPublishClient(client) {
   mqttPublishClient = client;
@@ -128,16 +140,34 @@ async function handlePillboxDoseTaken(payload) {
       [dose.dose_log_id],
     );
   } else if (dose.schedule_id) {
+    const schedRow = await pool.query(
+      `SELECT s.scheduled_time, m.program, m.frequency
+       FROM schedules s
+       JOIN medications m ON m.id = s.medication_id
+       WHERE s.id = $1`,
+      [dose.schedule_id],
+    );
+    const medTime = schedRow.rows[0]?.program || schedRow.rows[0]?.frequency || '';
+    const parsed = parseMedicationTime(medTime)
+      || (() => {
+        const t = String(schedRow.rows[0]?.scheduled_time || '');
+        const m = t.match(/(\d{1,2}):(\d{2})/);
+        return m ? { hour: parseInt(m[1], 10), minute: parseInt(m[2], 10) } : null;
+      })();
+    const scheduledAtUtc = parsed
+      ? new Date(manilaLocalToUtcMs(manila.today, parsed.hour, parsed.minute)).toISOString()
+      : new Date().toISOString();
+
     await pool.query(
       `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
-       SELECT $1, $2::text, NOW(), 'taken', NOW()
+       SELECT $1, $2::text, $3::timestamptz, 'taken', NOW()
        WHERE NOT EXISTS (
          SELECT 1 FROM dose_logs
          WHERE schedule_id = $1
            AND patient_uid = $2::text
-           AND (scheduled_at AT TIME ZONE 'Asia/Manila')::date = $3::date
+           AND (scheduled_at AT TIME ZONE 'Asia/Manila')::date = $4::date
        )`,
-      [dose.schedule_id, patientUid, manila.today],
+      [dose.schedule_id, patientUid, scheduledAtUtc, manila.today],
     );
   }
 
@@ -194,6 +224,8 @@ async function handlePillboxDoseTaken(payload) {
   });
 
   await buzzOffForPatient(patientUid);
+
+  await bumpPatientActivity(patientUid, 'pillbox_dose_taken');
 
   console.log(
     `[mqtt] dose_taken processed: ${deviceId} → ${patientName} / ${dose.medication_name}`,

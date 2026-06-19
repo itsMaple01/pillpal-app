@@ -1,7 +1,7 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions,
-  Alert, Modal, Platform, Switch, Pressable, Image,
+  Alert, Modal, Platform, Switch, Pressable, Image, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import SwipeTabHost from '@/components/SwipeTabHost';
@@ -1010,6 +1010,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [showStatistics,  setShowStatistics]  = useState(false);
   const [showPillbox,     setShowPillbox]     = useState(false);
   const [healthProfile,   setHealthProfile]   = useState<IntelligenceProfile | null>(null);
+  const [healthProfileLoading, setHealthProfileLoading] = useState(true);
   const [pillboxStatus,   setPillboxStatus]   = useState<{ connected: boolean; device_id?: string }>({ connected: false });
 
   const medScrollRef = useRef<ScrollView>(null);
@@ -1041,9 +1042,11 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
 
   useEffect(() => {
     if (!uid) return;
+    setHealthProfileLoading(true);
     getIntelligenceProfile(uid)
       .then(res => setHealthProfile(res.data))
-      .catch(() => setHealthProfile(null));
+      .catch(() => setHealthProfile(null))
+      .finally(() => setHealthProfileLoading(false));
     getPillboxStatus(uid)
       .then(res => setPillboxStatus(res.data))
       .catch(() => setPillboxStatus({ connected: false }));
@@ -1401,7 +1404,16 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
         <StatTile icon="checkmark-circle-outline" value={takenToday} label="Taken today" accent={GREEN} iconBg="#f1f8e9" />
       </View>
 
-      {healthProfile && (() => {
+      {healthProfileLoading ? (
+        <View style={[styles.insightsCard, { borderColor: '#bdbdbd' }]}>
+          <View style={styles.insightsHeader}>
+            <AppIcon name="analytics-outline" size={22} color="#757575" />
+            <Text style={styles.insightsTitle}>Health Insights</Text>
+            <ActivityIndicator size="small" color={GREEN} />
+          </View>
+          <Text style={styles.insightsAction}>Loading risk profile…</Text>
+        </View>
+      ) : healthProfile && (() => {
         const learning = isSampleInsufficient(healthProfile);
         const riskLevel = getRiskLevel(healthProfile);
         const riskColor = learning ? '#757575' : getRiskColor(riskLevel);

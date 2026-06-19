@@ -4,6 +4,15 @@ const { syncAllTodayDoseLogs } = require('./lib/doseSync');
 const { getManilaNow } = require('./lib/manilaTime');
 const { notifyPatientAndLinkedCaregivers } = require('./lib/patientNotify');
 
+function formatManilaDoseTime(scheduledAt) {
+  return new Date(scheduledAt).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Manila',
+  });
+}
+
 async function checkMissedDoses() {
   try {
     const manila = getManilaNow();
@@ -52,7 +61,8 @@ async function checkMissedDoses() {
         try {
           await notifyPatientAndLinkedCaregivers(dose.patient_uid, {
             title: 'Medication Missed',
-            body: `${dose.patient_name}'s ${dose.medication_name} was missed`,
+            caretakerBody: `${dose.patient_name}'s ${dose.medication_name} was missed`,
+            patientBody: `Your ${dose.medication_name} dose was missed.`,
             data: {
               type: 'missed_dose',
               patient_uid: dose.patient_uid,
@@ -76,6 +86,7 @@ async function checkMissedDoses() {
       SELECT
         dl.id AS dose_id,
         dl.patient_uid,
+        dl.scheduled_at,
         m.name AS medication_name,
         u.full_name AS patient_name,
         cp.caretaker_uid
@@ -86,7 +97,7 @@ async function checkMissedDoses() {
       JOIN caretaker_patients cp ON dl.patient_uid = cp.patient_uid AND cp.status = 'active'
       WHERE dl.status = 'pending'
         AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
-        AND dl.scheduled_at < NOW()
+        AND dl.scheduled_at < NOW() - INTERVAL '30 minutes'
         AND dl.scheduled_at >= NOW() - INTERVAL '2 hours'
         AND COALESCE(dl.late_alert_sent, FALSE) = FALSE
     `);
@@ -104,9 +115,11 @@ async function checkMissedDoses() {
       } catch (alertErr) {
         console.warn('Late alert POST failed:', alertErr.message);
         try {
+          const doseTime = formatManilaDoseTime(dose.scheduled_at);
           await notifyPatientAndLinkedCaregivers(dose.patient_uid, {
             title: 'Medication Late',
-            body: `${dose.patient_name}'s ${dose.medication_name} was late`,
+            caretakerBody: `${dose.patient_name}'s ${dose.medication_name} was late`,
+            patientBody: `Your ${dose.medication_name} for ${doseTime} is late`,
             data: {
               type: 'late_dose',
               patient_uid: dose.patient_uid,

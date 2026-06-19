@@ -3,7 +3,8 @@ import {
   View, Text, TouchableOpacity, StyleSheet, Modal, TextInput, Image, Alert, Platform, ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import * as FileSystem from 'expo-file-system';
+import { ref, uploadBytes, uploadString, getDownloadURL } from 'firebase/storage';
 import AppIcon from '@/components/AppIcon';
 import { theme } from '@/lib/theme';
 import { TEXT } from '@/lib/typography';
@@ -21,10 +22,17 @@ interface Props {
 
 async function uploadProfilePhoto(uid: string, uri: string): Promise<string> {
   if (!storage) throw new Error('Storage not available');
-  const response = await fetch(uri);
-  const blob = await response.blob();
   const photoRef = ref(storage, `profiles/${uid}/avatar.jpg`);
-  await uploadBytes(photoRef, blob);
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    await uploadBytes(photoRef, blob);
+  } else {
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    await uploadString(photoRef, base64, 'base64', { contentType: 'image/jpeg' });
+  }
   return getDownloadURL(photoRef);
 }
 
@@ -85,7 +93,8 @@ export default function EditProfileModal({
       });
       onSaved({ full_name: trimmed, profile_picture });
       onClose();
-    } catch {
+    } catch (err) {
+      console.error('[EditProfileModal] save failed:', err);
       Alert.alert('Error', 'Could not save profile. Please try again.');
     } finally {
       setSaving(false);
