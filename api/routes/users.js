@@ -49,6 +49,9 @@ router.post('/sync', async (req, res) => {
   if (!firebase_uid || !email || !role) {
     return res.status(400).json({ error: 'firebase_uid, email, and role are required' });
   }
+  if (full_name !== undefined && full_name !== null && String(full_name).trim() === '') {
+    return res.status(400).json({ error: 'full_name cannot be blank' });
+  }
   try {
     const existingByEmail = await pool.query(
       'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
@@ -140,14 +143,29 @@ router.patch('/:uid/push-token', async (req, res) => {
 });
 
 router.put('/:uid/profile', async (req, res) => {
-  const { firebase_uid, full_name, age, health_condition } = req.body;
+  const { firebase_uid, full_name, age, health_condition, profile_picture } = req.body;
   if (firebase_uid !== req.params.uid) {
     return res.status(403).json({ error: 'Cannot update another account' });
   }
+  if (full_name !== undefined && full_name !== null && String(full_name).trim() === '') {
+    return res.status(400).json({ error: 'full_name cannot be blank' });
+  }
   try {
     const result = await pool.query(
-      `UPDATE users SET full_name = $1, age = $2, health_condition = $3 WHERE firebase_uid = $4 RETURNING *`,
-      [full_name, age, health_condition ?? null, req.params.uid],
+      `UPDATE users
+       SET full_name = COALESCE($1, full_name),
+           age = COALESCE($2, age),
+           health_condition = COALESCE($3, health_condition),
+           profile_picture = COALESCE($4, profile_picture)
+       WHERE firebase_uid = $5
+       RETURNING *`,
+      [
+        full_name !== undefined ? String(full_name).trim() : null,
+        age,
+        health_condition ?? null,
+        profile_picture ?? null,
+        req.params.uid,
+      ],
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' });
     res.json(result.rows[0]);

@@ -1,3 +1,4 @@
+/// <reference path="./onnxruntime-node.d.ts" />
 import * as ort from 'onnxruntime-node';
 import * as path from 'path';
 

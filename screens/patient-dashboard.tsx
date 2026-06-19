@@ -1,7 +1,7 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions,
-  Alert, Modal, Platform, Switch, Pressable,
+  Alert, Modal, Platform, Switch, Pressable, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import SwipeTabHost from '@/components/SwipeTabHost';
@@ -38,6 +38,7 @@ import MedicationsScreen from '@/components/MedicationsScreen';
 import LinkCaretakerModal from '@/components/LinkCaretakerModal';
 import AppIcon, { PATIENT_TAB_ICONS } from '@/components/AppIcon';
 import AppLogo from '@/components/AppLogo';
+import EditProfileModal from '@/components/EditProfileModal';
 import AppHeader from '@/components/AppHeader';
 import MenuRow from '@/components/MenuRow';
 import NotificationSettingsModal from '@/components/NotificationSettingsModal';
@@ -48,7 +49,8 @@ import StatTile from '@/components/StatTile';
 import StatisticsScreen from '@/components/StatisticsScreen';
 import PillboxScreen from '@/screens/PillboxScreen';
 import {
-  getRiskLevel, getRiskColor, getRiskBg, getActionLabel, getRiskExplanation,
+  getRiskLevel, getRiskColor, getRiskBg, getRecommendedActionForProfile, getRiskExplanation,
+  isSampleInsufficient, getLearningPatternMessage,
   type IntelligenceProfile,
 } from '@/lib/intelligenceDisplay';
 import { bumpPatientActivity } from '@/lib/patientActivity';
@@ -991,6 +993,8 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const [selectedDate,  setSelectedDate]  = useState(new Date());
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [displayName, setDisplayName] = useState('Patient');
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const [showLinkCaretaker, setShowLinkCaretaker] = useState(false);
   const [patientIncomingReqs, setPatientIncomingReqs] = useState<any[]>([]);
   const [medsLoading, setMedsLoading] = useState(true);
@@ -1077,6 +1081,7 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       .then(r => {
         const n = (r.data?.full_name as string | undefined)?.trim();
         setDisplayName(n || (email?.split('@')[0] ?? 'Patient'));
+        setProfilePicture((r.data?.profile_picture as string | undefined) ?? null);
       })
       .catch(() => setDisplayName(email?.split('@')[0] ?? 'Patient'));
   }, [uid, email]);
@@ -1397,23 +1402,30 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
       </View>
 
       {healthProfile && (() => {
+        const learning = isSampleInsufficient(healthProfile);
         const riskLevel = getRiskLevel(healthProfile);
-        const riskColor = getRiskColor(riskLevel);
+        const riskColor = learning ? '#757575' : getRiskColor(riskLevel);
         return (
           <View style={[styles.insightsCard, { borderColor: riskColor }]}>
             <View style={styles.insightsHeader}>
               <AppIcon name="analytics-outline" size={22} color={riskColor} />
               <Text style={styles.insightsTitle}>Health Insights</Text>
-              <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
-                <Text style={[styles.riskBadgeText, { color: riskColor }]}>{riskLevel} risk</Text>
-              </View>
+              {!learning && (
+                <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
+                  <Text style={[styles.riskBadgeText, { color: riskColor }]}>{riskLevel} risk</Text>
+                </View>
+              )}
             </View>
             <Text style={styles.insightsAction}>
-              Recommended: {getActionLabel(healthProfile.action)}
+              {learning
+                ? getLearningPatternMessage()
+                : `Recommended: ${getRecommendedActionForProfile(healthProfile)}`}
             </Text>
-            <Text style={styles.insightsExplain}>
-              {getRiskExplanation(healthProfile, riskLevel)}
-            </Text>
+            {!learning && (
+              <Text style={styles.insightsExplain}>
+                {getRiskExplanation(healthProfile, riskLevel)}
+              </Text>
+            )}
           </View>
         );
       })()}
@@ -1493,14 +1505,26 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
   const ManageScreen = () => (
     <ScrollView style={styles.body} contentContainerStyle={[styles.bodyContent, isTablet && styles.bodyContentTablet]}>
       <View style={styles.profileHeader}>
-        <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>
-            {displayName.charAt(0).toUpperCase()}
-          </Text>
-        </View>
+        {profilePicture ? (
+          <Image source={{ uri: profilePicture }} style={styles.profileAvatarImg} />
+        ) : (
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarText}>
+              {displayName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
         <Text style={styles.profileName}>{displayName}</Text>
         <Text style={styles.profileUid}>ID: {uid?.slice(0, 12)}...</Text>
       </View>
+
+      <Text style={styles.manageSection}>Profile</Text>
+      <MenuRow
+        icon="person-outline"
+        label="Edit profile"
+        sub="Update your name and photo"
+        onPress={() => setShowEditProfile(true)}
+      />
 
       <Text style={styles.manageSection}>Essentials</Text>
 
@@ -1742,6 +1766,17 @@ export default function PatientDashboard({ onLogout, uid, email }: Props) {
           getPillboxStatus(uid).then(res => setPillboxStatus(res.data)).catch(() => {});
         }}
       />
+      <EditProfileModal
+        visible={showEditProfile}
+        uid={uid}
+        initialName={displayName}
+        initialPhotoUrl={profilePicture}
+        onClose={() => setShowEditProfile(false)}
+        onSaved={({ full_name, profile_picture }) => {
+          setDisplayName(full_name);
+          if (profile_picture !== undefined) setProfilePicture(profile_picture ?? null);
+        }}
+      />
       <LogoutModal
         visible={showLogoutModal}
         onCancel={() => setShowLogoutModal(false)}
@@ -1922,6 +1957,9 @@ const styles = StyleSheet.create({
   profileAvatar: {
     width: 72, height: 72, borderRadius: 36,
     backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+  },
+  profileAvatarImg: {
+    width: 72, height: 72, borderRadius: 36, marginBottom: 12,
   },
   profileAvatarText: { fontSize: 32, fontWeight: '800', color: '#fff' },
   profileName:       { fontSize: 20, fontWeight: '800', color: '#222' },

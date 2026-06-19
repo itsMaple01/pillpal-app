@@ -32,7 +32,13 @@ export const getUser = (uid: string) =>
 
 export const updateUserProfile = (
   uid: string,
-  body: { firebase_uid: string; full_name: string; age: number; health_condition?: string | null },
+  body: {
+    firebase_uid: string;
+    full_name: string;
+    age?: number;
+    health_condition?: string | null;
+    profile_picture?: string | null;
+  },
 ) => api.put(`/api/users/${uid}/profile`, body);
 
 export const updateLinkedPatientProfile = (

@@ -70,6 +70,20 @@ function manilaLocalToUtcMs(today, hour, minute) {
   return new Date(iso).getTime();
 }
 
+/** Calendar date YYYY-MM-DD in Asia/Manila for a Date or ISO string. */
+function toManilaDateString(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: MANILA_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const get = (type) => parts.find(p => p.type === type)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 module.exports = {
   MANILA_TZ,
   parseMedicationTime,
@@ -77,4 +91,5 @@ module.exports = {
   manilaScheduledTimestamp,
   isPastTwoHourWindow,
   manilaLocalToUtcMs,
+  toManilaDateString,
 };

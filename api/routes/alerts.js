@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db');
-const admin = require('../firebaseAdmin'); // we'll create this
+const admin = require('../firebaseAdmin');
+const { notifyPatientAndLinkedCaregivers } = require('../lib/patientNotify');
 
 // GET all alerts for a caretaker
 router.get('/:caretaker_uid', async (req, res) => {
@@ -73,6 +74,28 @@ router.post('/', async (req, res) => {
         is_read:         false,
         created_at:      admin.firestore.FieldValue.serverTimestamp(),
       });
+
+    const alertTitle = type === 'missed_dose'
+      ? 'Medication Missed'
+      : type === 'late_dose'
+        ? 'Medication Late'
+        : 'GabayRa Alert';
+    const alertBody = message || `${patient_name ?? 'Patient'} — ${medication_name ?? 'medication'}`;
+
+    try {
+      await notifyPatientAndLinkedCaregivers(patient_uid, {
+        title: alertTitle,
+        body: alertBody,
+        data: {
+          type: type ?? 'alert',
+          alert_id: String(alert.id),
+          patient_uid,
+          medication_name: medication_name ?? '',
+        },
+      });
+    } catch (pushErr) {
+      console.warn('[alerts] FCM push failed:', pushErr.message);
+    }
 
     res.status(201).json(alert);
   } catch (err) {

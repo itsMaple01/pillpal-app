@@ -1,7 +1,7 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, StatusBar, Dimensions, TextInput,
-  ActivityIndicator, Alert, Platform, Modal, Animated,
+  ActivityIndicator, Alert, Platform, Modal, Animated, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -39,9 +39,11 @@ import StatisticsScreen from '@/components/StatisticsScreen';
 import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
 import PillboxScreen from '@/screens/PillboxScreen';
 import {
-  getRiskLevel, getRiskColor, getRiskBg, getActionLabel,
+  getRiskLevel, getRiskColor, getRiskBg, getRecommendedActionForProfile,
+  isSampleInsufficient, getLearningPatternMessage,
   type IntelligenceProfile,
 } from '@/lib/intelligenceDisplay';
+import EditProfileModal from '@/components/EditProfileModal';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import {
   isTutorialDone, setTutorialDone, CAREGIVER_TUTORIAL,
@@ -120,6 +122,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const [showLinkModal,      setShowLinkModal]      = useState(false);
   const [linkRequests,       setLinkRequests]       = useState<any[]>([]);
   const [caregiverName,      setCaregiverName]      = useState('');
+  const [profilePicture,     setProfilePicture]     = useState<string | null>(null);
+  const [showEditProfile,    setShowEditProfile]    = useState(false);
   const [editPatient,        setEditPatient]        = useState<Patient | null>(null);
   const [editName,          setEditName]           = useState('');
   const [editAge,           setEditAge]            = useState('');
@@ -159,7 +163,19 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       // Load offline patients from AsyncStorage
       const offlinePatientsKey = `offline_patients_${uid}`;
       const offlineData = await AsyncStorage.getItem(offlinePatientsKey);
-      const offlinePatients = offlineData ? JSON.parse(offlineData) : [];
+      const offlinePatients = (offlineData ? JSON.parse(offlineData) : [])
+        .map((p: any) => {
+          const full_name = (p.full_name || p.name || '').trim();
+          const id = p.id || p.firebase_uid || `offline_${Date.now()}`;
+          return {
+            ...p,
+            id,
+            firebase_uid: p.firebase_uid || id,
+            full_name,
+            isOffline: true,
+          };
+        })
+        .filter((p: any) => p.full_name);
       
       // Combine online and offline patients
       const allPatients = [...list, ...offlinePatients];
@@ -181,8 +197,8 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
       
       // Add medications for offline patients
       offlinePatients.forEach((p: any) => {
-        next[p.id] = p.medications.map((med: any) => ({
-          id: `${p.id}_${med.name}`,
+        next[p.firebase_uid] = p.medications.map((med: any) => ({
+          id: `${p.firebase_uid}_${med.name}`,
           name: med.name,
           dosage: med.dosage,
           frequency: med.frequency,
@@ -240,7 +256,10 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
 
   useEffect(() => {
     getUser(uid)
-      .then(r => setCaregiverName((r.data?.full_name as string | undefined)?.trim() || ''))
+      .then(r => {
+        setCaregiverName((r.data?.full_name as string | undefined)?.trim() || '');
+        setProfilePicture((r.data?.profile_picture as string | undefined) ?? null);
+      })
       .catch(() => {});
     registerAndSavePushTokenIfNeeded(uid);
     isTutorialDone('caregiver', uid).then(done => {
@@ -336,13 +355,26 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
     setSavingOfflinePatient(true);
     try {
       // Store offline patients in AsyncStorage
+      const trimmedName = patientData.name.trim();
+      if (!trimmedName) {
+        Alert.alert('Required', 'Please enter a patient name.');
+        return;
+      }
+
       const offlinePatientsKey = `offline_patients_${uid}`;
       const existingData = await AsyncStorage.getItem(offlinePatientsKey);
       const existingPatients = existingData ? JSON.parse(existingData) : [];
-      
+
+      const patientId = `offline_${Date.now()}`;
       const newPatient = {
-        id: `offline_${Date.now()}`,
-        ...patientData,
+        id: patientId,
+        firebase_uid: patientId,
+        full_name: trimmedName,
+        name: trimmedName,
+        age: patientData.age,
+        healthCondition: patientData.healthCondition,
+        medications: patientData.medications,
+        isOffline: true,
         createdAt: new Date().toISOString(),
       };
       
@@ -552,18 +584,23 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             </View>
             {mlProfiles[patient.firebase_uid] && (() => {
               const profile = mlProfiles[patient.firebase_uid];
+              const learning = isSampleInsufficient(profile);
               const riskLevel = getRiskLevel(profile);
-              const riskColor = getRiskColor(riskLevel);
+              const riskColor = learning ? '#757575' : getRiskColor(riskLevel);
               return (
                 <View style={[styles.mlInsightCard, { borderColor: riskColor }]}>
                   <View style={styles.mlInsightHeader}>
                     <Text style={styles.mlInsightLabel}>ML risk</Text>
-                    <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
-                      <Text style={[styles.riskBadgeText, { color: riskColor }]}>{riskLevel}</Text>
-                    </View>
+                    {!learning && (
+                      <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
+                        <Text style={[styles.riskBadgeText, { color: riskColor }]}>{riskLevel}</Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.mlInsightAction}>
-                    Action: {getActionLabel(profile.action)}
+                    {learning
+                      ? getLearningPatternMessage()
+                      : `Action: ${getRecommendedActionForProfile(profile)}`}
                   </Text>
                 </View>
               );
@@ -1002,14 +1039,26 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
   const renderManageTab = () => (
     <ScrollView style={styles.mainContent} contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}>
       <View style={styles.profileHeader}>
-        <View style={styles.profileAvatar}>
-          <Text style={styles.profileAvatarText}>
-            {(caregiverName || 'Caregiver').charAt(0).toUpperCase()}
-          </Text>
-        </View>
+        {profilePicture ? (
+          <Image source={{ uri: profilePicture }} style={styles.profileAvatarImg} />
+        ) : (
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarText}>
+              {(caregiverName || 'Caregiver').charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
         <Text style={styles.profileName}>{caregiverName || 'Caregiver/Family'}</Text>
         <Text style={styles.profileUid}>ID: {uid?.slice(0, 12)}...</Text>
       </View>
+
+      <Text style={styles.manageSection}>Profile</Text>
+      <MenuRow
+        icon="person-outline"
+        label="Edit profile"
+        sub="Update your name and photo"
+        onPress={() => setShowEditProfile(true)}
+      />
 
       <Text style={styles.manageSection}>Overview</Text>
       <MenuRow icon="people-outline" label="Linked patients" sub={`${patients.length} linked`} onPress={() => setShowLinkedPatients(true)} />
@@ -1440,8 +1489,20 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
               style: 'destructive',
               onPress: async () => {
                 try {
-                  await unlinkPatient({ caretaker_uid: uid, patient_uid: p.firebase_uid });
-                  await fetchPatients(true);
+                  const patient = p as Patient & { id?: string; isOffline?: boolean };
+                  if (patient.isOffline || patient.firebase_uid?.startsWith('offline_')) {
+                    const key = `offline_patients_${uid}`;
+                    const data = await AsyncStorage.getItem(key);
+                    const list = data ? JSON.parse(data) : [];
+                    const updated = list.filter(
+                      (op: any) => (op.id || op.firebase_uid) !== (patient.id || patient.firebase_uid),
+                    );
+                    await AsyncStorage.setItem(key, JSON.stringify(updated));
+                    await fetchPatients(true);
+                  } else {
+                    await unlinkPatient({ caretaker_uid: uid, patient_uid: p.firebase_uid });
+                    await fetchPatients(true);
+                  }
                 } catch {
                   showAlert('Error', 'Could not remove patient');
                 }
@@ -1449,6 +1510,17 @@ export default function CaretakerDashboard({ onLogout, uid, onSwitchToFamily }: 
             },
           ],
         );
+      }}
+    />
+    <EditProfileModal
+      visible={showEditProfile}
+      uid={uid}
+      initialName={caregiverName || 'Caregiver'}
+      initialPhotoUrl={profilePicture}
+      onClose={() => setShowEditProfile(false)}
+      onSaved={({ full_name, profile_picture }) => {
+        setCaregiverName(full_name);
+        if (profile_picture !== undefined) setProfilePicture(profile_picture ?? null);
       }}
     />
     <AddOfflinePatientModal
@@ -1856,6 +1928,7 @@ const styles = StyleSheet.create({
   // Manage (account)
   profileHeader:     { alignItems: 'center', paddingVertical: 24 },
   profileAvatar:     { width: 72, height: 72, borderRadius: 36, backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  profileAvatarImg:    { width: 72, height: 72, borderRadius: 36, marginBottom: 12 },
   profileAvatarText: { fontSize: 32, fontWeight: '800', color: '#fff' },
   profileName:       { fontSize: 20, fontWeight: '800', color: '#222' },
   profileUid:        { fontSize: 12, color: '#aaa', marginTop: 4 },

@@ -1,6 +1,6 @@
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  StatusBar, Dimensions, Alert, Platform, ActivityIndicator, Modal,
+  StatusBar, Dimensions, Alert, Platform, ActivityIndicator, Modal, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useState } from 'react';
@@ -29,9 +29,11 @@ import StatisticsScreen from '@/components/StatisticsScreen';
 import MedicationInventoryScreen from '@/components/MedicationInventoryScreen';
 import PillboxScreen from '@/screens/PillboxScreen';
 import {
-  getRiskLevel, getRiskColor, getRiskBg, getActionLabel,
+  getRiskLevel, getRiskColor, getRiskBg, getRecommendedActionForProfile,
+  isSampleInsufficient, getLearningPatternMessage,
   type IntelligenceProfile,
 } from '@/lib/intelligenceDisplay';
+import EditProfileModal from '@/components/EditProfileModal';
 import AddOfflinePatientModal, { type OfflinePatientData } from '@/components/AddOfflinePatientModal';
 import { APP_NAME } from '@/lib/branding';
 import { TEXT } from '@/lib/typography';
@@ -80,6 +82,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [people, setPeople] = useState<LinkedPerson[]>([]);
   const [loading, setLoading] = useState(true);
   const [displayName, setDisplayName] = useState('');
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const [medsByPerson, setMedsByPerson] = useState<Record<string, PatientMedication[]>>({});
   const [showLink, setShowLink] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -107,7 +111,19 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       // Load offline patients from AsyncStorage
       const offlinePatientsKey = `offline_patients_${uid}`;
       const offlineData = await AsyncStorage.getItem(offlinePatientsKey);
-      const offlinePatients = offlineData ? JSON.parse(offlineData) : [];
+      const offlinePatients = (offlineData ? JSON.parse(offlineData) : [])
+        .map((p: any) => {
+          const full_name = (p.full_name || p.name || '').trim();
+          const id = p.id || p.firebase_uid || `offline_${Date.now()}`;
+          return {
+            ...p,
+            id,
+            firebase_uid: p.firebase_uid || id,
+            full_name,
+            isOffline: true,
+          };
+        })
+        .filter((p: any) => p.full_name);
       
       // Combine online and offline patients
       const allPeople = [...list, ...offlinePatients];
@@ -129,8 +145,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       
       // Add medications for offline patients
       offlinePatients.forEach((p: any) => {
-        medMap[p.id] = p.medications.map((med: any) => ({
-          id: `${p.id}_${med.name}`,
+        medMap[p.firebase_uid] = p.medications.map((med: any) => ({
+          id: `${p.firebase_uid}_${med.name}`,
           name: med.name,
           dosage: med.dosage,
           frequency: med.frequency,
@@ -152,7 +168,10 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   useEffect(() => {
     loadPeople();
     getUser(uid)
-      .then(r => setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member'))
+      .then(r => {
+        setDisplayName((r.data?.full_name as string | undefined)?.trim() || 'Family member');
+        setProfilePicture((r.data?.profile_picture as string | undefined) ?? null);
+      })
       .catch(() => setDisplayName('Family member'));
     registerAndSavePushTokenIfNeeded(uid);
     isTutorialDone('family', uid).then(done => {
@@ -288,14 +307,26 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const handleSaveOfflinePatient = useCallback(async (patientData: OfflinePatientData) => {
     setSavingOfflinePatient(true);
     try {
-      // Store offline patients in AsyncStorage
+      const trimmedName = patientData.name.trim();
+      if (!trimmedName) {
+        Alert.alert('Required', 'Please enter a patient name.');
+        return;
+      }
+
       const offlinePatientsKey = `offline_patients_${uid}`;
       const existingData = await AsyncStorage.getItem(offlinePatientsKey);
       const existingPatients = existingData ? JSON.parse(existingData) : [];
-      
+
+      const patientId = `offline_${Date.now()}`;
       const newPatient = {
-        id: `offline_${Date.now()}`,
-        ...patientData,
+        id: patientId,
+        firebase_uid: patientId,
+        full_name: trimmedName,
+        name: trimmedName,
+        age: patientData.age,
+        healthCondition: patientData.healthCondition,
+        medications: patientData.medications,
+        isOffline: true,
         createdAt: new Date().toISOString(),
       };
       
@@ -350,16 +381,23 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
             </Text>
             {mlProfiles[person.firebase_uid] && (() => {
               const profile = mlProfiles[person.firebase_uid];
+              const learning = isSampleInsufficient(profile);
               const riskLevel = getRiskLevel(profile);
-              const riskColor = getRiskColor(riskLevel);
+              const riskColor = learning ? '#757575' : getRiskColor(riskLevel);
               return (
                 <View style={[styles.mlBadgeRow, { marginTop: 8 }]}>
-                  <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
-                    <Text style={[styles.riskBadgeText, { color: riskColor }]}>
-                      {riskLevel} risk
-                    </Text>
-                  </View>
-                  <Text style={styles.mlActionText}>{getActionLabel(profile.action)}</Text>
+                  {!learning && (
+                    <View style={[styles.riskBadge, { backgroundColor: getRiskBg(riskLevel) }]}>
+                      <Text style={[styles.riskBadgeText, { color: riskColor }]}>
+                        {riskLevel} risk
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={styles.mlActionText}>
+                    {learning
+                      ? getLearningPatternMessage()
+                      : getRecommendedActionForProfile(profile)}
+                  </Text>
                 </View>
               );
             })()}
@@ -495,6 +533,26 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const ManageScreen = () => (
     <ScrollView contentContainerStyle={styles.scrollPad}>
+      <View style={styles.profileHeader}>
+        {profilePicture ? (
+          <Image source={{ uri: profilePicture }} style={styles.profileAvatarImg} />
+        ) : (
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarText}>
+              {(displayName || 'F').charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+        <Text style={styles.profileName}>{displayName || 'Family member'}</Text>
+      </View>
+
+      <MenuRow
+        icon="person-outline"
+        label="Edit profile"
+        sub="Update your name and photo"
+        onPress={() => setShowEditProfile(true)}
+      />
+
       <MenuRow
         icon="people-outline"
         label="Linked patients"
@@ -728,8 +786,20 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
                 style: 'destructive',
                 onPress: async () => {
                   try {
-                    await unlinkPatient({ caretaker_uid: uid, patient_uid: p.firebase_uid });
-                    await loadPeople();
+                    const person = p as LinkedPerson & { id?: string; isOffline?: boolean };
+                    if (person.isOffline || person.firebase_uid?.startsWith('offline_')) {
+                      const key = `offline_patients_${uid}`;
+                      const data = await AsyncStorage.getItem(key);
+                      const list = data ? JSON.parse(data) : [];
+                      const updated = list.filter(
+                        (op: any) => (op.id || op.firebase_uid) !== (person.id || person.firebase_uid),
+                      );
+                      await AsyncStorage.setItem(key, JSON.stringify(updated));
+                      await loadPeople();
+                    } else {
+                      await unlinkPatient({ caretaker_uid: uid, patient_uid: p.firebase_uid });
+                      await loadPeople();
+                    }
                   } catch {
                     Alert.alert('Error', 'Could not remove patient');
                   }
@@ -737,6 +807,17 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
               },
             ],
           );
+        }}
+      />
+      <EditProfileModal
+        visible={showEditProfile}
+        uid={uid}
+        initialName={displayName || 'Family member'}
+        initialPhotoUrl={profilePicture}
+        onClose={() => setShowEditProfile(false)}
+        onSaved={({ full_name, profile_picture }) => {
+          setDisplayName(full_name);
+          if (profile_picture !== undefined) setProfilePicture(profile_picture ?? null);
         }}
       />
       <AddOfflinePatientModal
@@ -753,6 +834,14 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#ffffff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 },
   scrollPad: { padding: 16, gap: 14, paddingBottom: 32 },
+  profileHeader: { alignItems: 'center', paddingVertical: 16 },
+  profileAvatar: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: GREEN, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+  },
+  profileAvatarImg: { width: 72, height: 72, borderRadius: 36, marginBottom: 12 },
+  profileAvatarText: { fontSize: 32, fontWeight: '800', color: '#fff' },
+  profileName: { fontSize: 20, fontWeight: '800', color: '#222' },
   greetingCard: {
     backgroundColor: '#fff',
     borderRadius: 16,

@@ -7,13 +7,18 @@ const HEALTH_CONDITION_MAP = {
   asthma: 0, copd: 1, diabetes: 2, heart_disease: 3, hypertension: 4, none: 5
 };
 
+/** Matches intelligenceEngine.js — late if taken > 30 minutes after scheduled. */
+const LATE_THRESHOLD_MINUTES = 30;
+const MIN_EVENTS_FOR_RISK = 5;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
 let riskSession = null;
 let actionSession = null;
 let modelsLoaded = false;
 
 async function loadModels() {
   if (modelsLoaded) return;
-  
+
   try {
     if (!riskSession) {
       riskSession = await ort.InferenceSession.create(
@@ -44,15 +49,77 @@ function extractOnnxLabel(output) {
 }
 
 /**
+ * Count late/missed adherence signals in intelligence_events over the last 7 days.
+ * Missed: event_type === 'missed' (dose already classified missed via 2-hour rule upstream).
+ * Late: taken/confirm with responded_at > 30 min after scheduled_at (same as intelligenceEngine.js).
+ */
+function countLateMissedInLast7Days(events) {
+  const cutoff = Date.now() - SEVEN_DAYS_MS;
+  let count = 0;
+
+  for (const e of events) {
+    const anchor = e.responded_at || e.scheduled_at;
+    if (!anchor) continue;
+    const ts = new Date(anchor).getTime();
+    if (Number.isNaN(ts) || ts < cutoff) continue;
+
+    if (e.event_type === 'missed') {
+      count += 1;
+      continue;
+    }
+
+    if (
+      (e.event_type === 'taken' || e.event_type === 'confirm')
+      && e.scheduled_at
+      && e.responded_at
+    ) {
+      const delayMin = Math.round(
+        (new Date(e.responded_at).getTime() - new Date(e.scheduled_at).getTime()) / 60000,
+      );
+      if (delayMin > LATE_THRESHOLD_MINUTES) count += 1;
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Derive risk tier from intelligence_events history + ONNX binary score.
+ * Below MIN_EVENTS_FOR_RISK logged events → always low, sample_size_sufficient: false.
+ */
+function deriveRiskLabel(events, onnxRiskScore) {
+  const sample_size_sufficient = events.length >= MIN_EVENTS_FOR_RISK;
+
+  if (!sample_size_sufficient) {
+    return { label: 'low', sample_size_sufficient: false };
+  }
+
+  const lateMissedCount = countLateMissedInLast7Days(events);
+
+  if (lateMissedCount >= 3 || onnxRiskScore === 1) {
+    return { label: 'high', sample_size_sufficient: true, lateMissedCount };
+  }
+  if (lateMissedCount >= 1) {
+    return { label: 'medium', sample_size_sufficient: true, lateMissedCount };
+  }
+  return { label: 'low', sample_size_sufficient: true, lateMissedCount };
+}
+
+function buildModelVersion(base, sample_size_sufficient) {
+  return sample_size_sufficient ? base : `${base}:insufficient_sample`;
+}
+
+/**
  * Runs both ONNX models and returns risk + action prediction.
- * Falls back to rule-based stub if model fails.
+ * Risk tier is derived from event history; ONNX risk_score is binary (0|1) input only.
  */
 async function predictMissRisk(events, profile, patientContext = {}) {
   try {
     await loadModels();
 
-    // Use scheduled time from context if available, otherwise use current time
-    const scheduledTime = patientContext.scheduled_time ? new Date(patientContext.scheduled_time) : new Date();
+    const scheduledTime = patientContext.scheduled_time
+      ? new Date(patientContext.scheduled_time)
+      : new Date();
     const streak_7d = computeStreak(events);
     const missed_last = events.length > 0 && events[0].event_type === 'missed' ? 1 : 0;
     const alert_sent = patientContext.alert_sent ? 1 : 0;
@@ -82,21 +149,24 @@ async function predictMissRisk(events, profile, patientContext = {}) {
       actionSession.run({ float_input: tensor }),
     ]);
 
-    console.log('Risk output keys:', Object.keys(riskOutput));
-    console.log('Action output keys:', Object.keys(actionOutput));
-
     const risk_score = extractOnnxLabel(riskOutput);
     const action_code = extractOnnxLabel(actionOutput);
     const action = action_code === 0 ? 'send_now' : action_code === 1 ? 'delay' : 'snooze';
 
-    console.log(`🤖 ML Prediction: risk=${risk_score}, action=${action}`);
+    const { label, sample_size_sufficient } = deriveRiskLabel(events, risk_score);
+
+    console.log(
+      `🤖 ML Prediction: onnx_risk=${risk_score}, tier=${label}, `
+      + `action=${action}, sample_sufficient=${sample_size_sufficient}`,
+    );
 
     return {
       miss_risk: risk_score,
-      label: risk_score === 1 ? 'high' : 'low',
+      label,
       action,
       action_code,
-      model_version: 'gabayra-onnx-v1',
+      sample_size_sufficient,
+      model_version: buildModelVersion('gabayra-onnx-v1', sample_size_sufficient),
     };
 
   } catch (err) {
@@ -106,59 +176,46 @@ async function predictMissRisk(events, profile, patientContext = {}) {
 }
 
 function computeStreak(events) {
-  // Calendar-based 7-day window streak calculation
   const now = new Date();
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  
+  const sevenDaysAgo = new Date(now.getTime() - SEVEN_DAYS_MS);
+
   let streak = 0;
   let consecutiveDays = 0;
   let lastDate = null;
-  
-  // Sort events by date (most recent first)
+
   const sortedEvents = events
     .filter(e => e.responded_at || e.scheduled_at)
     .sort((a, b) => new Date(b.responded_at || b.scheduled_at) - new Date(a.responded_at || a.scheduled_at));
-  
+
   for (const e of sortedEvents) {
     const eventDate = new Date(e.responded_at || e.scheduled_at);
-    
-    // Only consider events within the last 7 days
+
     if (eventDate < sevenDaysAgo) continue;
-    
-    // Check if this is a taken/confirm event
+
     if (e.event_type === 'taken' || e.event_type === 'confirm') {
       if (lastDate === null) {
-        // First event in streak
         streak = 1;
         consecutiveDays = 1;
         lastDate = eventDate;
       } else {
-        // Check if this is the same day or consecutive day
         const daysDiff = Math.floor((lastDate.getTime() - eventDate.getTime()) / (24 * 60 * 60 * 1000));
-        
+
         if (daysDiff <= 1) {
-          // Same day or consecutive day - continue streak
           if (daysDiff === 1) consecutiveDays++;
           streak++;
           lastDate = eventDate;
         } else {
-          // Gap in streak - break
           break;
         }
       }
     } else {
-      // Non-taken event breaks the streak
       break;
     }
   }
-  
-  // Return the streak, capped at 7 for the 7-day window
+
   return Math.min(streak, 7);
 }
 
-/**
- * Initialize models on startup - call this when server starts
- */
 async function initializeModels() {
   try {
     await loadModels();
@@ -171,12 +228,17 @@ async function initializeModels() {
 }
 
 function fallbackStub(events) {
+  const { label, sample_size_sufficient } = deriveRiskLabel(events, 0);
   const missed = events.filter(e => e.event_type === 'missed').length;
-  const taken = events.filter(e => e.event_type === 'taken').length;
-  const total = missed + taken || 1;
-  const miss_risk = Math.min(1, missed / total);
-  const label = miss_risk > 0.5 ? 'high' : miss_risk > 0.25 ? 'medium' : 'low';
-  return { miss_risk: Math.round(miss_risk * 100) / 100, label, action: 'send_now', action_code: 0, model_version: 'predict-stub-v1' };
+
+  return {
+    miss_risk: sample_size_sufficient && missed > 0 ? 1 : 0,
+    label,
+    action: 'send_now',
+    action_code: 0,
+    sample_size_sufficient,
+    model_version: buildModelVersion('predict-stub-v1', sample_size_sufficient),
+  };
 }
 
 module.exports = { predictMissRisk, initializeModels };

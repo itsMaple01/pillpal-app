@@ -40,5 +40,6 @@ export const CAREGIVER_TUTORIAL: NavTutorialStep[] = [
   { tab: 'Home', title: 'Home', body: 'Overview of all linked patients, missed doses, and compliance stats.' },
   { tab: 'Patients', title: 'Patients', body: 'View and manage each patient, send reminders, view their schedule.' },
   { tab: 'Schedule', title: 'Schedule', body: 'See all patients\' medication schedules in one daily view with missed/late indicators.' },
+  { tab: 'Medications', title: 'Medications', body: 'View and manage medications for all linked patients in one place.' },
   { tab: 'Manage', title: 'Manage', body: 'Manage linked patients, inventory, alerts, and account settings.' },
 ];

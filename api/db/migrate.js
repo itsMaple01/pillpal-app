@@ -112,6 +112,9 @@ async function runMigrations() {
     )`);
 
   await run('dose_logs.alert_sent', `ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS alert_sent BOOLEAN DEFAULT FALSE`);
+  await run('dose_logs.late_alert_sent', `ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS late_alert_sent BOOLEAN DEFAULT FALSE`);
+
+  await run('users.profile_picture', `ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT`);
 
   await run('pillbox_devices', `
     CREATE TABLE IF NOT EXISTS pillbox_devices (

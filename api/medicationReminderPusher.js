@@ -1,6 +1,7 @@
 const pool = require('./db');
 const { sendPushNotification } = require('./lib/expoPush');
 const { notifyLinkedCaretakers } = require('./lib/caretakerNotify');
+const { buzzOnForPatient } = require('./lib/mqttPillbox');
 
 const WINDOW_MINUTES = 5;
 const MANILA_TZ = 'Asia/Manila';
@@ -143,6 +144,9 @@ async function sendPushAndLog(row, body, today, scheduledLabel) {
        ON CONFLICT (medication_id, push_date, push_type) DO NOTHING`,
       [row.medication_id, row.patient_uid, today],
     );
+
+    await buzzOnForPatient(row.patient_uid);
+
     console.log(`📲 Scheduled FCM push sent: ${row.medication_name} → ${row.patient_uid}`);
     return true;
   } catch (err) {

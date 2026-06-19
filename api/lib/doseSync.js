@@ -5,6 +5,7 @@ const {
   manilaScheduledTimestamp,
   manilaLocalToUtcMs,
   isPastTwoHourWindow,
+  toManilaDateString,
 } = require('./manilaTime');
 
 function medicationTimeStr(med) {
@@ -14,9 +15,7 @@ function medicationTimeStr(med) {
 function isTakenToday(med, today) {
   if (!med.taken) return false;
   if (!med.last_taken_at) return med.taken;
-  const takenDate = med.last_taken_at instanceof Date
-    ? med.last_taken_at.toISOString().slice(0, 10)
-    : String(med.last_taken_at).slice(0, 10);
+  const takenDate = toManilaDateString(med.last_taken_at);
   return takenDate === today;
 }
 
@@ -70,12 +69,14 @@ async function syncTodayDoseLogsForPatient(patientUid) {
       const existing = await pool.query(
         `SELECT id, status FROM dose_logs
          WHERE schedule_id = $1 AND patient_uid = $2
-           AND scheduled_at::date = $3::date`,
+           AND (scheduled_at AT TIME ZONE 'Asia/Manila')::date = $3::date`,
         [Number(scheduleId), String(med.patient_uid), String(manila.today)],
       );
 
       if (existing.rowCount === 0) {
-        const scheduledAtUtc = new Date(scheduledLocal).toISOString();
+        const scheduledAtUtc = new Date(
+          manilaLocalToUtcMs(manila.today, parsed.hour, parsed.minute),
+        ).toISOString();
         await pool.query(
           `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
            VALUES ($1, $2, $3, $4, $5)`,

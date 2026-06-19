@@ -4,6 +4,45 @@ const { notifyLinkedCaretakers } = require('./caretakerNotify');
 const { syncTodayDoseLogsForPatient } = require('./doseSync');
 const { getManilaNow } = require('./manilaTime');
 
+let mqttPublishClient = null;
+
+function setMqttPublishClient(client) {
+  mqttPublishClient = client;
+}
+
+function publishPillboxCommand(deviceId, command) {
+  if (!mqttPublishClient || !mqttPublishClient.connected) {
+    console.warn(`[mqtt] cannot publish ${command} — client not connected`);
+    return false;
+  }
+  const topic = `gabayra/devices/${deviceId}/commands`;
+  mqttPublishClient.publish(topic, JSON.stringify({ command }));
+  console.log(`[mqtt] published ${command} → ${topic}`);
+  return true;
+}
+
+async function getActivePillboxDeviceId(patientUid) {
+  const res = await pool.query(
+    `SELECT device_id FROM pillbox_devices
+     WHERE patient_uid = $1 AND is_active = TRUE
+     LIMIT 1`,
+    [patientUid],
+  );
+  return res.rows[0]?.device_id ?? null;
+}
+
+async function buzzOnForPatient(patientUid) {
+  const deviceId = await getActivePillboxDeviceId(patientUid);
+  if (!deviceId) return false;
+  return publishPillboxCommand(deviceId, 'buzz_on');
+}
+
+async function buzzOffForPatient(patientUid) {
+  const deviceId = await getActivePillboxDeviceId(patientUid);
+  if (!deviceId) return false;
+  return publishPillboxCommand(deviceId, 'buzz_off');
+}
+
 async function findPendingDoseForToday(patientUid) {
   const manila = getManilaNow();
 
@@ -154,6 +193,8 @@ async function handlePillboxDoseTaken(payload) {
     },
   });
 
+  await buzzOffForPatient(patientUid);
+
   console.log(
     `[mqtt] dose_taken processed: ${deviceId} → ${patientName} / ${dose.medication_name}`,
   );
@@ -177,6 +218,7 @@ function startMqttPillboxListener() {
   });
 
   client.on('connect', () => {
+    setMqttPublishClient(client);
     client.subscribe(topic, (err) => {
       if (err) console.error('[mqtt] subscribe error:', err);
       else console.log(`[mqtt] subscribed to ${topic}`);
@@ -205,4 +247,10 @@ function startMqttPillboxListener() {
   return client;
 }
 
-module.exports = { startMqttPillboxListener, handlePillboxDoseTaken };
+module.exports = {
+  startMqttPillboxListener,
+  handlePillboxDoseTaken,
+  buzzOnForPatient,
+  buzzOffForPatient,
+  publishPillboxCommand,
+};

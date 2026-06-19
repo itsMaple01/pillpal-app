@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2017",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "onnxruntime-node": ["../../api/node_modules/onnxruntime-node"]
+    }
+  },
+  "include": ["predict.ts"]
+}

@@ -3,6 +3,9 @@ const router  = express.Router();
 const pool    = require('../db');
 const admin   = require('../firebaseAdmin');
 const { notifyLinkedCaretakers } = require('../lib/caretakerNotify');
+const { syncTodayDoseLogsForPatient } = require('../lib/doseSync');
+const { getManilaNow } = require('../lib/manilaTime');
+const { buzzOffForPatient } = require('../lib/mqttPillbox');
 
 async function bumpPatientActivity(patientUid, type = 'medication_update') {
   try {
@@ -18,17 +21,23 @@ async function bumpPatientActivity(patientUid, type = 'medication_update') {
 // GET all medications for a patient (resets "taken" when last taken was before today)
 router.get('/:patient_uid', async (req, res) => {
   try {
-    // Reset taken status for medications where last_taken_at is before today
+    const manila = getManilaNow();
+
+    await syncTodayDoseLogsForPatient(req.params.patient_uid);
+
+    // Reset taken status for medications where last_taken_at is before today (Manila)
     await pool.query(
       `UPDATE medications SET taken = FALSE
        WHERE patient_uid = $1 AND taken = TRUE
-         AND (last_taken_at IS NULL OR last_taken_at < CURRENT_DATE)`,
-      [req.params.patient_uid],
+         AND (
+           last_taken_at IS NULL
+           OR last_taken_at < ($2::date AT TIME ZONE 'Asia/Manila')
+         )`,
+      [req.params.patient_uid, manila.today],
     );
-    
-    // Get medications with today's dose status from dose_logs
+
     const result = await pool.query(`
-      SELECT 
+      SELECT
         m.*,
         dl.status as dose_log_status,
         dl.taken_at,
@@ -40,20 +49,20 @@ router.get('/:patient_uid', async (req, res) => {
         JOIN schedules s ON s.id = dl.schedule_id
         WHERE s.medication_id = m.id
           AND dl.patient_uid = m.patient_uid
-          AND dl.scheduled_at::date = CURRENT_DATE
+          AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = $2::date
         ORDER BY dl.scheduled_at DESC
         LIMIT 1
       ) dl ON TRUE
       WHERE m.patient_uid = $1
       ORDER BY m.created_at DESC
-    `, [req.params.patient_uid]);
-    
+    `, [req.params.patient_uid, manila.today]);
+
     const medications = result.rows.map(med => ({
       ...med,
-      taken: med.dose_log_status === 'taken' || (med.taken && med.last_taken_at && new Date(med.last_taken_at).toDateString() === new Date().toDateString()),
+      taken: med.dose_log_status === 'taken',
       taken_at: med.taken_at ?? null,
     }));
-    
+
     res.json(medications);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -109,7 +118,7 @@ router.patch('/:id/taken', async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE medications SET taken = $1,
-        last_taken_at = CASE WHEN $1 = TRUE THEN CURRENT_DATE ELSE NULL END
+        last_taken_at = CASE WHEN $1 = TRUE THEN (NOW() AT TIME ZONE 'Asia/Manila')::date ELSE NULL END
        WHERE id = $2 RETURNING *`,
       [taken, req.params.id],
     );
@@ -129,7 +138,7 @@ router.patch('/:id/taken', async (req, res) => {
            WHERE s.id = dl.schedule_id
              AND s.medication_id = $1
              AND dl.patient_uid = $2
-             AND dl.scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+             AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
              AND dl.status IN ('pending', 'missed')`,
           [row.id, row.patient_uid],
         );
@@ -153,6 +162,8 @@ router.patch('/:id/taken', async (req, res) => {
             medication_id: String(row.id),
           },
         });
+
+        await buzzOffForPatient(row.patient_uid);
       } catch (pushErr) {
         console.warn('Caretaker taken notification failed:', pushErr.message);
       }

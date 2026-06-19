@@ -128,6 +128,8 @@ async function getReminderPlan(firebase_uid, patientContext = {}) {
       miss_risk: risk.miss_risk,
       miss_risk_label: risk.label,
       action: risk.action,
+      sample_size_sufficient: risk.sample_size_sufficient,
+      action_code: risk.action_code,
       model_version: risk.model_version,
       engine: 'rules-v1+ml-stub',
     };
@@ -144,6 +146,8 @@ async function getReminderPlan(firebase_uid, patientContext = {}) {
     miss_risk: risk.miss_risk,
     miss_risk_label: risk.label,
     action: risk.action,
+    sample_size_sufficient: risk.sample_size_sufficient,
+    action_code: risk.action_code,
     model_version: risk.model_version,
     engine: `rules-v1+${rl.policy_version}`,
   };
