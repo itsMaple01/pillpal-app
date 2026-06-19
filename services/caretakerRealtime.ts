@@ -15,7 +15,7 @@ import type { PatientMedication } from '@/types/medication';
 export function subscribeCaretakerOverview(
   patientUids: string[],
   handlers: {
-    onOverviewChange: () => void;
+    onOverviewChange?: () => void;
     onPatientMeds?: (patientUid: string, meds: PatientMedication[]) => void;
   },
 ): () => void {
@@ -23,8 +23,9 @@ export function subscribeCaretakerOverview(
   let overviewDebounce: ReturnType<typeof setTimeout> | undefined;
 
   const notifyOverview = () => {
+    if (!handlers.onOverviewChange) return;
     if (overviewDebounce) clearTimeout(overviewDebounce);
-    overviewDebounce = setTimeout(() => handlers.onOverviewChange(), 280);
+    overviewDebounce = setTimeout(() => handlers.onOverviewChange!(), 280);
   };
 
   const unique = [...new Set(patientUids.filter(Boolean))];

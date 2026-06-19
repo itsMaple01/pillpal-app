@@ -1,8 +1,7 @@
 const pool = require('../db');
 const admin = require('../firebaseAdmin');
-const { sendPushNotification } = require('./expoPush');
-const { notifyLinkedCaretakers } = require('./caretakerNotify');
-const { syncTodayDoseLogsForPatient } = require('./doseSync');
+const { notifyMedicationTaken } = require('./caretakerNotify');
+const { markTodayDoseTaken, getTodayDoseLog } = require('./doseSync');
 const { getManilaNow, manilaLocalToUtcMs, parseMedicationTime } = require('./manilaTime');
 
 let mqttPublishClient = null;
@@ -55,52 +54,61 @@ async function buzzOffForPatient(patientUid) {
   return publishPillboxCommand(deviceId, 'buzz_off');
 }
 
+function scheduledAtUtcForToday(manila, parsed) {
+  if (!parsed) return new Date().toISOString();
+  return new Date(manilaLocalToUtcMs(manila.today, parsed.hour, parsed.minute)).toISOString();
+}
+
+/** Earliest pending dose for today — one row per schedule via DISTINCT ON. */
 async function findPendingDoseForToday(patientUid) {
   const manila = getManilaNow();
 
   const pending = await pool.query(
-    `SELECT dl.id AS dose_log_id,
+    `SELECT DISTINCT ON (s.medication_id)
+            dl.id AS dose_log_id,
             dl.schedule_id,
             s.medication_id,
-            m.name AS medication_name
+            m.name AS medication_name,
+            s.scheduled_time,
+            m.program,
+            m.frequency
      FROM dose_logs dl
      JOIN schedules s ON s.id = dl.schedule_id
      JOIN medications m ON m.id = s.medication_id
      WHERE dl.patient_uid = $1
        AND dl.status = 'pending'
-       AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = $2::date
-     ORDER BY dl.scheduled_at ASC
-     LIMIT 1`,
+       AND dl.log_date = $2::date
+     ORDER BY s.medication_id, dl.scheduled_at ASC`,
     [patientUid, manila.today],
   );
 
   if (pending.rowCount > 0) return pending.rows[0];
 
   const fallback = await pool.query(
-    `SELECT m.id AS medication_id, m.name AS medication_name
+    `SELECT m.id AS medication_id,
+            m.name AS medication_name,
+            m.program,
+            m.frequency,
+            s.id AS schedule_id,
+            s.scheduled_time
      FROM medications m
+     JOIN schedules s ON s.medication_id = m.id
      WHERE m.patient_uid = $1
        AND COALESCE(m.suspended, FALSE) = FALSE
-       AND COALESCE(m.taken, FALSE) = FALSE
-     ORDER BY m.id ASC
+       AND NOT EXISTS (
+         SELECT 1 FROM dose_logs dl
+         WHERE dl.schedule_id = s.id
+           AND dl.patient_uid = $1
+           AND dl.log_date = $2::date
+           AND (dl.status = 'taken' OR dl.taken_at IS NOT NULL)
+       )
+     ORDER BY s.scheduled_time ASC NULLS LAST, m.id ASC
      LIMIT 1`,
-    [patientUid],
+    [patientUid, manila.today],
   );
 
   if (fallback.rowCount === 0) return null;
-
-  const med = fallback.rows[0];
-  const schedule = await pool.query(
-    `SELECT id FROM schedules WHERE medication_id = $1 LIMIT 1`,
-    [med.medication_id],
-  );
-
-  return {
-    dose_log_id: null,
-    schedule_id: schedule.rows[0]?.id ?? null,
-    medication_id: med.medication_id,
-    medication_name: med.medication_name,
-  };
+  return fallback.rows[0];
 }
 
 async function handlePillboxDoseTaken(payload) {
@@ -126,54 +134,40 @@ async function handlePillboxDoseTaken(payload) {
   const { patient_uid: patientUid } = deviceRes.rows[0];
   const manila = getManilaNow();
 
-  await syncTodayDoseLogsForPatient(patientUid);
-
   const dose = await findPendingDoseForToday(patientUid);
-  if (!dose) {
-    console.warn(`[mqtt] no pending dose found for patient ${patientUid}`);
+  if (!dose || !dose.schedule_id) {
+    console.warn(`[mqtt] no pending dose found for patient ${patientUid} (device ${deviceId})`);
     return;
   }
 
-  if (dose.dose_log_id) {
-    await pool.query(
-      `UPDATE dose_logs SET status = 'taken', taken_at = NOW() WHERE id = $1`,
-      [dose.dose_log_id],
-    );
-  } else if (dose.schedule_id) {
-    const schedRow = await pool.query(
-      `SELECT s.scheduled_time, m.program, m.frequency
-       FROM schedules s
-       JOIN medications m ON m.id = s.medication_id
-       WHERE s.id = $1`,
-      [dose.schedule_id],
-    );
-    const medTime = schedRow.rows[0]?.program || schedRow.rows[0]?.frequency || '';
-    const parsed = parseMedicationTime(medTime)
-      || (() => {
-        const t = String(schedRow.rows[0]?.scheduled_time || '');
-        const m = t.match(/(\d{1,2}):(\d{2})/);
-        return m ? { hour: parseInt(m[1], 10), minute: parseInt(m[2], 10) } : null;
-      })();
-    const scheduledAtUtc = parsed
-      ? new Date(manilaLocalToUtcMs(manila.today, parsed.hour, parsed.minute)).toISOString()
-      : new Date().toISOString();
+  const medTime = dose.program || dose.frequency || '';
+  const parsed = parseMedicationTime(medTime)
+    || (() => {
+      const t = String(dose.scheduled_time || '');
+      const m = t.match(/(\d{1,2}):(\d{2})/);
+      return m ? { hour: parseInt(m[1], 10), minute: parseInt(m[2], 10) } : null;
+    })();
+  const scheduledAtUtc = scheduledAtUtcForToday(manila, parsed);
 
-    await pool.query(
-      `INSERT INTO dose_logs (schedule_id, patient_uid, scheduled_at, status, taken_at)
-       SELECT $1, $2::text, $3::timestamptz, 'taken', NOW()
-       WHERE NOT EXISTS (
-         SELECT 1 FROM dose_logs
-         WHERE schedule_id = $1
-           AND patient_uid = $2::text
-           AND (scheduled_at AT TIME ZONE 'Asia/Manila')::date = $4::date
-       )`,
-      [dose.schedule_id, patientUid, scheduledAtUtc, manila.today],
+  const existing = await getTodayDoseLog(dose.schedule_id, patientUid, manila.today);
+  if (existing?.status === 'taken' || existing?.taken_at) {
+    console.log(
+      `[mqtt] dose already taken for schedule ${dose.schedule_id} patient ${patientUid} — skipping`,
     );
+    return;
   }
+
+  await markTodayDoseTaken({
+    scheduleId: dose.schedule_id,
+    patientUid,
+    logDate: manila.today,
+    scheduledAtUtc,
+  });
 
   await pool.query(
     `UPDATE medications
-     SET taken = TRUE, last_taken_at = CURRENT_DATE
+     SET taken = TRUE,
+         last_taken_at = (NOW() AT TIME ZONE 'Asia/Manila')::date
      WHERE id = $1`,
     [dose.medication_id],
   );
@@ -192,39 +186,17 @@ async function handlePillboxDoseTaken(payload) {
   );
 
   const patientRes = await pool.query(
-    `SELECT full_name, expo_push_token FROM users WHERE firebase_uid = $1`,
+    `SELECT full_name FROM users WHERE firebase_uid = $1`,
     [patientUid],
   );
-  const patient = patientRes.rows[0];
-  const patientName = patient?.full_name || 'Patient';
+  const patientName = patientRes.rows[0]?.full_name || 'Patient';
 
-  if (patient?.expo_push_token) {
-    await sendPushNotification(
-      patient.expo_push_token,
-      'Pillbox Update',
-      'Dose recorded by your pillbox',
-      {
-        type: 'pillbox_dose_taken',
-        patient_uid: patientUid,
-        medication_id: String(dose.medication_id),
-        device_id: deviceId,
-      },
-    );
-  }
-
-  await notifyLinkedCaretakers(patientUid, {
-    title: 'Medication Taken',
-    body: `${patientName} took their medication via pillbox`,
-    data: {
-      type: 'pillbox_dose_taken',
-      patient_uid: patientUid,
-      medication_id: String(dose.medication_id),
-      device_id: deviceId,
-    },
+  await notifyMedicationTaken(patientUid, patientName, dose.medication_name, {
+    medication_id: String(dose.medication_id),
+    device_id: deviceId,
   });
 
   await buzzOffForPatient(patientUid);
-
   await bumpPatientActivity(patientUid, 'pillbox_dose_taken');
 
   console.log(
@@ -257,14 +229,18 @@ function startMqttPillboxListener() {
     });
   });
 
-  client.on('message', async (_topic, message) => {
+  client.on('message', async (topic, message) => {
     try {
       const payload = JSON.parse(message.toString());
+      const deviceId = payload?.device_id ?? 'unknown';
+      const eventType = payload?.event ?? 'unknown';
+      console.log(`[mqtt] message received topic=${topic} device_id=${deviceId} event=${eventType}`);
+
       if (payload.event === 'dose_taken') {
         await handlePillboxDoseTaken(payload);
       }
     } catch (err) {
-      console.error('[mqtt] message handler error:', err);
+      console.error('[mqtt] message handler error:', err.message || err);
     }
   });
 

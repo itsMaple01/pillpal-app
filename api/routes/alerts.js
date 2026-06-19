@@ -80,7 +80,11 @@ router.post('/', async (req, res) => {
       : type === 'late_dose'
         ? 'Medication Late'
         : 'GabayRa Alert';
-    const caretakerBody = message || `${patient_name ?? 'Patient'} — ${medication_name ?? 'medication'}`;
+    const caretakerBody = type === 'missed_dose'
+      ? `${patient_name ?? 'Patient'}'s ${medication_name ?? 'medication'} was missed`
+      : type === 'late_dose'
+        ? `${patient_name ?? 'Patient'}'s ${medication_name ?? 'medication'} was late`
+        : (message || `${patient_name ?? 'Patient'} — ${medication_name ?? 'medication'}`);
     const patientBody = type === 'missed_dose'
       ? `Your ${medication_name ?? 'medication'} dose was missed.`
       : type === 'late_dose'

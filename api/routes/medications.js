@@ -2,9 +2,9 @@ const express = require('express');
 const router  = express.Router();
 const pool    = require('../db');
 const admin   = require('../firebaseAdmin');
-const { notifyLinkedCaretakers } = require('../lib/caretakerNotify');
-const { syncTodayDoseLogsForPatient } = require('../lib/doseSync');
-const { getManilaNow } = require('../lib/manilaTime');
+const { notifyMedicationTaken } = require('../lib/caretakerNotify');
+const { syncTodayDoseLogsForPatient, markTodayDoseTaken } = require('../lib/doseSync');
+const { getManilaNow, parseMedicationTime, manilaLocalToUtcMs } = require('../lib/manilaTime');
 const { buzzOffForPatient } = require('../lib/mqttPillbox');
 
 async function bumpPatientActivity(patientUid, type = 'medication_update') {
@@ -49,8 +49,11 @@ router.get('/:patient_uid', async (req, res) => {
         JOIN schedules s ON s.id = dl.schedule_id
         WHERE s.medication_id = m.id
           AND dl.patient_uid = m.patient_uid
-          AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = $2::date
-        ORDER BY dl.scheduled_at DESC
+          AND dl.log_date = $2::date
+        ORDER BY
+          CASE WHEN dl.status = 'taken' THEN 0 WHEN dl.status = 'pending' THEN 1 ELSE 2 END,
+          dl.taken_at DESC NULLS LAST,
+          dl.scheduled_at DESC
         LIMIT 1
       ) dl ON TRUE
       WHERE m.patient_uid = $1
@@ -131,17 +134,32 @@ router.patch('/:id/taken', async (req, res) => {
 
     if (taken) {
       try {
-        await pool.query(
-          `UPDATE dose_logs dl
-           SET status = 'taken', taken_at = NOW()
+        const schedules = await pool.query(
+          `SELECT s.id, m.program, m.frequency, s.scheduled_time
            FROM schedules s
-           WHERE s.id = dl.schedule_id
-             AND s.medication_id = $1
-             AND dl.patient_uid = $2
-             AND (dl.scheduled_at AT TIME ZONE 'Asia/Manila')::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
-             AND dl.status IN ('pending', 'missed')`,
+           JOIN medications m ON m.id = s.medication_id
+           WHERE s.medication_id = $1 AND s.patient_uid = $2`,
           [row.id, row.patient_uid],
         );
+        const manila = getManilaNow();
+        for (const sched of schedules.rows) {
+          const timeStr = sched.program || sched.frequency || String(sched.scheduled_time || '');
+          const parsed = parseMedicationTime(timeStr)
+            || (() => {
+              const t = String(sched.scheduled_time || '');
+              const m = t.match(/(\d{1,2}):(\d{2})/);
+              return m ? { hour: parseInt(m[1], 10), minute: parseInt(m[2], 10) } : null;
+            })();
+          const scheduledAtUtc = parsed
+            ? new Date(manilaLocalToUtcMs(manila.today, parsed.hour, parsed.minute)).toISOString()
+            : new Date().toISOString();
+          await markTodayDoseTaken({
+            scheduleId: sched.id,
+            patientUid: row.patient_uid,
+            logDate: manila.today,
+            scheduledAtUtc,
+          });
+        }
       } catch (doseErr) {
         console.warn('dose_log taken update failed:', doseErr.message);
       }
@@ -153,14 +171,8 @@ router.patch('/:id/taken', async (req, res) => {
         );
         const patientName = patientRes.rows[0]?.full_name || 'Patient';
 
-        await notifyLinkedCaretakers(row.patient_uid, {
-          title: 'Medication Taken',
-          body: `${patientName} has taken ${row.name}`,
-          data: {
-            type: 'medication_taken',
-            patient_uid: row.patient_uid,
-            medication_id: String(row.id),
-          },
+        await notifyMedicationTaken(row.patient_uid, patientName, row.name, {
+          medication_id: String(row.id),
         });
 
         await buzzOffForPatient(row.patient_uid);

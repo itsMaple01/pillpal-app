@@ -107,7 +107,7 @@ router.get('/adherence/:patient_uid', async (req, res) => {
          COUNT(*) FILTER (WHERE status = 'missed')::int AS missed
        FROM dose_logs
        WHERE patient_uid = $1
-         AND scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date`,
+         AND log_date = (NOW() AT TIME ZONE 'Asia/Manila')::date`,
       [req.params.patient_uid],
     );
 
@@ -117,7 +117,7 @@ router.get('/adherence/:patient_uid', async (req, res) => {
        JOIN schedules s ON s.id = dl.schedule_id
        JOIN medications m ON m.id = s.medication_id
        WHERE dl.patient_uid = $1
-         AND dl.scheduled_at::date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+         AND dl.log_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
        ORDER BY dl.scheduled_at ASC`,
       [req.params.patient_uid],
     );

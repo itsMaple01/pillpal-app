@@ -113,6 +113,14 @@ async function runMigrations() {
 
   await run('dose_logs.alert_sent', `ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS alert_sent BOOLEAN DEFAULT FALSE`);
   await run('dose_logs.late_alert_sent', `ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS late_alert_sent BOOLEAN DEFAULT FALSE`);
+  await run('dose_logs.log_date', `ALTER TABLE dose_logs ADD COLUMN IF NOT EXISTS log_date DATE`);
+  await run('dose_logs.log_date_backfill', `
+    UPDATE dose_logs
+    SET log_date = (scheduled_at AT TIME ZONE 'Asia/Manila')::date
+    WHERE log_date IS NULL`);
+  await run('dose_logs.schedule_log_date_uniq', `
+    CREATE UNIQUE INDEX IF NOT EXISTS dose_logs_schedule_log_date_uidx
+    ON dose_logs (schedule_id, log_date)`);
 
   await run('users.profile_picture', `ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT`);
 

@@ -3,7 +3,8 @@ import {
   StatusBar, Dimensions, Alert, Platform, ActivityIndicator, Modal, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getLinkedPatients, getMedications, getUser, sendPatientReminder,
@@ -80,7 +81,8 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const [tab, setTab] = useState<Tab>('Home');
   const [people, setPeople] = useState<LinkedPerson[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -101,10 +103,13 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
   const [pillboxStatus, setPillboxStatus] = useState<{ connected: boolean; device_id?: string }>({ connected: false });
   const [mlProfiles, setMlProfiles] = useState<Record<string, IntelligenceProfile>>({});
   const [mlLoading, setMlLoading] = useState<Record<string, boolean>>({});
+  const mlFetchedRef = useRef<Set<string>>(new Set());
   const [showOfflinePatientModal, setShowOfflinePatientModal] = useState(false);
   const [savingOfflinePatient, setSavingOfflinePatient] = useState(false);
 
-  const loadPeople = useCallback(async () => {
+  const loadPeople = useCallback(async (opts?: { quiet?: boolean }) => {
+    const quiet = opts?.quiet ?? false;
+    if (!quiet) setInitialLoading(true);
     try {
       const res = await getLinkedPatients(uid);
       const list = Array.isArray(res.data) ? res.data : [];
@@ -129,7 +134,6 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
       // Combine online and offline patients
       const allPeople = [...list, ...offlinePatients];
       setPeople(allPeople);
-      setLoading(false);
 
       const offlineMedMap: Record<string, PatientMedication[]> = {};
       offlinePatients.forEach((p: any) => {
@@ -163,9 +167,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
         ...offlineMedMap,
       }));
     } catch {
-      setPeople([]);
+      if (!quiet) setPeople([]);
     } finally {
-      setLoading(false);
+      if (!quiet) {
+        setInitialLoading(false);
+        setHasLoadedOnce(true);
+      }
     }
   }, [uid]);
 
@@ -197,13 +204,21 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     return subscribeCaretakerOverview(
       people.map(p => p.firebase_uid),
       {
-        onOverviewChange: () => loadPeople(),
         onPatientMeds: (patientUid, meds) => {
           setMedsByPerson(prev => ({ ...prev, [patientUid]: meds }));
         },
       },
     );
-  }, [people.map(p => p.firebase_uid).sort().join(','), loadPeople]);
+  }, [people.map(p => p.firebase_uid).sort().join(',')]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active' && hasLoadedOnce) {
+        loadPeople({ quiet: true });
+      }
+    });
+    return () => sub.remove();
+  }, [hasLoadedOnce, loadPeople]);
 
   useEffect(() => {
     if (people.length === 0) {
@@ -219,13 +234,13 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
     if (people.length === 0) {
       setMlProfiles({});
       setMlLoading({});
+      mlFetchedRef.current = new Set();
       return;
     }
-    const initialLoading: Record<string, boolean> = {};
-    people.forEach(p => { initialLoading[p.firebase_uid] = true; });
-    setMlLoading(initialLoading);
-
     people.forEach(p => {
+      if (mlFetchedRef.current.has(p.firebase_uid)) return;
+      mlFetchedRef.current.add(p.firebase_uid);
+      setMlLoading(prev => ({ ...prev, [p.firebase_uid]: true }));
       getIntelligenceProfile(p.firebase_uid)
         .then(res => {
           setMlProfiles(prev => ({ ...prev, [p.firebase_uid]: res.data as IntelligenceProfile }));
@@ -235,7 +250,7 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           setMlLoading(prev => ({ ...prev, [p.firebase_uid]: false }));
         });
     });
-  }, [people]);
+  }, [people.map(p => p.firebase_uid).sort().join(',')]);
 
   const alert = (title: string, msg: string) => {
     if (Platform.OS === 'web') window.alert(`${title}\n${msg}`);
@@ -512,19 +527,28 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
           </Text>
         </View>
       </View>
-      <View style={styles.statsRow}>
-        <StatTile icon="people-outline" value={String(people.length)} label="Linked people" />
-        <StatTile icon="medical-outline" value={String(totalMedsToday)} label="Meds today" />
-        <StatTile icon="checkmark-circle-outline" value={String(takenToday)} label="Taken" />
-      </View>
-      {people.length === 0 ? (
-        <View style={styles.empty}>
-          <AppIcon name="link-outline" size={36} color={GREEN} />
-          <Text style={styles.emptyTitle}>No family linked yet</Text>
-          <Text style={styles.emptySub}>Go to Manage → Link to connect with a patient.</Text>
+      {initialLoading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={GREEN} size="large" />
+          <Text style={[styles.emptySub, { marginTop: 12 }]}>Loading family data…</Text>
         </View>
       ) : (
-        people.map(p => renderPersonCard(p))
+        <>
+          <View style={styles.statsRow}>
+            <StatTile icon="people-outline" value={String(people.length)} label="Linked people" />
+            <StatTile icon="medical-outline" value={String(totalMedsToday)} label="Meds today" />
+            <StatTile icon="checkmark-circle-outline" value={String(takenToday)} label="Taken" />
+          </View>
+          {people.length === 0 ? (
+            <View style={styles.empty}>
+              <AppIcon name="link-outline" size={36} color={GREEN} />
+              <Text style={styles.emptyTitle}>No family linked yet</Text>
+              <Text style={styles.emptySub}>Go to Manage → Link to connect with a patient.</Text>
+            </View>
+          ) : (
+            people.map(p => renderPersonCard(p))
+          )}
+        </>
       )}
       <MenuRow
         icon="calendar-outline"
@@ -537,7 +561,12 @@ export default function FamilyDashboard({ uid, onLogout, onSwitchToCaregiver }: 
 
   const FamilyScreen = () => (
     <ScrollView contentContainerStyle={styles.scrollPad}>
-      {people.length === 0 ? (
+      {initialLoading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={GREEN} size="large" />
+          <Text style={[styles.emptySub, { marginTop: 12 }]}>Loading family data…</Text>
+        </View>
+      ) : people.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptySub}>No family linked yet. Use Manage → Link to connect.</Text>
         </View>

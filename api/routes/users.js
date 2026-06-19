@@ -131,14 +131,27 @@ router.get('/:uid', async (req, res) => {
 
 router.patch('/:uid/push-token', async (req, res) => {
   const { expo_push_token } = req.body;
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query('BEGIN');
+    if (expo_push_token) {
+      await client.query(
+        `UPDATE users SET expo_push_token = NULL
+         WHERE expo_push_token = $1 AND firebase_uid != $2`,
+        [expo_push_token, req.params.uid],
+      );
+    }
+    await client.query(
       'UPDATE users SET expo_push_token = $1 WHERE firebase_uid = $2',
       [expo_push_token ?? null, req.params.uid],
     );
+    await client.query('COMMIT');
     res.json({ ok: true });
   } catch (err) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
